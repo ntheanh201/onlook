@@ -21,15 +21,16 @@ export default function AuthRedirect() {
 
             const returnUrl = await localforage.getItem<string>(LocalForageKeys.RETURN_URL);
             await localforage.removeItem(LocalForageKeys.RETURN_URL);
+            const sanitizedUrl = sanitizeReturnUrl(returnUrl);
 
-            // If user has no active subscription or legacy subscription, redirect to demo-only page
-            if (!subscription && !legacySubscription) {
-                router.replace(Routes.DEMO_ONLY);
+            // Self-hosted deployments should allow signed-in users into the app
+            // without Onlook-hosted subscription records.
+            if (sanitizedUrl === '/see-a-demo' || (!subscription && !legacySubscription)) {
+                router.replace(Routes.PROJECTS);
                 return;
             }
 
             // Otherwise, redirect to their intended destination
-            const sanitizedUrl = sanitizeReturnUrl(returnUrl);
             router.replace(sanitizedUrl);
         };
         handleRedirect();

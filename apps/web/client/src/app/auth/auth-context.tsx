@@ -40,7 +40,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 await localforage.setItem(LocalForageKeys.RETURN_URL, returnUrl);
             }
             await localforage.setItem(LAST_SIGN_IN_METHOD_KEY, method);
-            await login(method);
+            const redirectUrl = await login(method);
+            window.location.assign(redirectUrl);
         } catch (error) {
             console.error('Error signing in with method:', method, error);
             throw error;
@@ -55,7 +56,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             if (returnUrl) {
                 await localforage.setItem(LocalForageKeys.RETURN_URL, returnUrl);
             }
-            await devLogin();
+            const redirectUrl = await devLogin();
+            window.location.assign(redirectUrl);
         } catch (error) {
             console.error('Error signing in with password:', error);
         } finally {

@@ -1,10 +1,12 @@
 import { trackEvent } from '@/utils/analytics/server';
 import { Routes } from '@/utils/constants';
 import { createClient } from '@/utils/supabase/server';
-import { NextResponse } from 'next/server';
-import { api } from '~/trpc/server';
+import { users } from '@onlook/db';
+import { db } from '@onlook/db/src/client';
+import { extractNames } from '@onlook/utility';
+import { NextResponse, type NextRequest } from 'next/server';
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
     const { searchParams, origin } = new URL(request.url);
     const code = searchParams.get('code');
 
@@ -12,9 +14,33 @@ export async function GET(request: Request) {
         const supabase = await createClient();
         const { error, data } = await supabase.auth.exchangeCodeForSession(code);
         if (!error) {
-            const user = await api.user.upsert({
+            const displayName = data.user.user_metadata.name
+                ?? data.user.user_metadata.display_name
+                ?? data.user.user_metadata.full_name
+                ?? data.user.user_metadata.first_name
+                ?? data.user.user_metadata.last_name
+                ?? '';
+            const { firstName, lastName } = extractNames(displayName);
+            const userData = {
                 id: data.user.id,
-            });
+                firstName,
+                lastName,
+                displayName,
+                email: data.user.email,
+                avatarUrl: data.user.user_metadata.avatar_url,
+            };
+
+            const [user] = await db
+                .insert(users)
+                .values(userData)
+                .onConflictDoUpdate({
+                    target: [users.id],
+                    set: {
+                        ...userData,
+                        updatedAt: new Date(),
+                    },
+                })
+                .returning();
 
             if (!user) {
                 console.error(`Failed to create user for id: ${data.user.id}`, { user });

@@ -6,7 +6,6 @@ import { createClient } from '@/utils/supabase/server';
 import { SEED_USER } from '@onlook/db';
 import { SignInMethod } from '@onlook/models';
 import { headers } from 'next/headers';
-import { redirect } from 'next/navigation';
 
 export async function login(provider: SignInMethod.GITHUB | SignInMethod.GOOGLE) {
     const supabase = await createClient();
@@ -18,7 +17,7 @@ export async function login(provider: SignInMethod.GITHUB | SignInMethod.GOOGLE)
         data: { session },
     } = await supabase.auth.getSession();
     if (session) {
-        redirect(Routes.AUTH_REDIRECT);
+        return Routes.AUTH_REDIRECT;
     }
 
     // Start OAuth flow
@@ -31,10 +30,10 @@ export async function login(provider: SignInMethod.GITHUB | SignInMethod.GOOGLE)
     });
 
     if (error) {
-        redirect('/error');
+        throw new Error(error.message);
     }
 
-    redirect(data.url);
+    return data.url;
 }
 
 export async function devLogin() {
@@ -46,7 +45,7 @@ export async function devLogin() {
     const { data: { session } } = await supabase.auth.getSession();
 
     if (session) {
-        redirect(Routes.AUTH_REDIRECT);
+        return Routes.AUTH_REDIRECT;
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -58,5 +57,5 @@ export async function devLogin() {
         console.error('Error signing in with password:', error);
         throw new Error(error.message);
     }
-    redirect(Routes.AUTH_REDIRECT);
+    return Routes.AUTH_REDIRECT;
 }
