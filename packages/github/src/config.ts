@@ -22,7 +22,7 @@ export function validateGitHubAppConfig(config: Partial<GitHubAppConfig>): confi
 export function getGitHubAppConfig(): GitHubAppConfig {
     const config = {
         appId: process.env.GITHUB_APP_ID,
-        privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+        privateKey: process.env.GITHUB_APP_PRIVATE_KEY?.replaceAll('\\n', '\n'),
         slug: process.env.GITHUB_APP_SLUG,
     };
 
