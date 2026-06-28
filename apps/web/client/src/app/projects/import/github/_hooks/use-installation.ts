@@ -1,7 +1,7 @@
 'use client';
 
 import { api } from '@/trpc/react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 export interface GitHubAppInstallation {
     hasInstallation: boolean;
@@ -15,21 +15,19 @@ export interface GitHubAppInstallation {
 
 export const useGitHubAppInstallation: () => GitHubAppInstallation = () => {
     const generateInstallationUrl = api.github.generateInstallationUrl.useMutation();
-    const { data: installationId, refetch: checkInstallation, isFetching: isChecking, error: checkInstallationError } = api.github.checkGitHubAppInstallation.useQuery(undefined, {
+    const { data: installationId, refetch: checkInstallation, isFetching: isChecking } = api.github.checkGitHubAppInstallation.useQuery(undefined, {
         refetchOnWindowFocus: true,
+        retry: false,
     });
-    const [error, setError] = useState<string | null>(null);
+    const [installError, setInstallError] = useState<string | null>(null);
     const hasInstallation = !!installationId;
 
-    useEffect(() => {
-        setError(checkInstallationError?.message || null);
-    }, [checkInstallationError]);
-
     const clearError = () => {
-        setError(null);
+        setInstallError(null);
     };
 
     const redirectToInstallation = async (redirectUrl?: string) => {
+        clearError();
         try {
             const finalRedirectUrl = redirectUrl;
             const result = await generateInstallationUrl.mutateAsync({
@@ -41,6 +39,7 @@ export const useGitHubAppInstallation: () => GitHubAppInstallation = () => {
             }
         } catch (error) {
             console.error('Error generating GitHub App installation URL:', error);
+            setInstallError(error instanceof Error ? error.message : 'Failed to generate GitHub App installation URL');
         }
     };
 
@@ -48,7 +47,7 @@ export const useGitHubAppInstallation: () => GitHubAppInstallation = () => {
         hasInstallation,
         installationId: installationId || null,
         isChecking,
-        error,
+        error: installError,
         redirectToInstallation,
         refetch: checkInstallation,
         clearError,
