@@ -1,7 +1,14 @@
 import { updateSession } from '@/utils/supabase/middleware';
-import { type NextRequest } from 'next/server';
+import { env } from '@/env';
+import { NextResponse, type NextRequest } from 'next/server';
 
 export async function proxy(request: NextRequest) {
+    const host = request.headers.get('host') ?? '';
+    if (host === '0.0.0.0' || host.startsWith('0.0.0.0:')) {
+        const url = new URL(request.nextUrl.pathname + request.nextUrl.search, env.NEXT_PUBLIC_SITE_URL);
+        return NextResponse.redirect(url);
+    }
+
     // update user's auth session
     return await updateSession(request);
 }

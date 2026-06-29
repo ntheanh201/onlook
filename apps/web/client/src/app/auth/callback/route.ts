@@ -1,3 +1,4 @@
+import { env } from '@/env';
 import { trackEvent } from '@/utils/analytics/server';
 import { Routes } from '@/utils/constants';
 import { createClient } from '@/utils/supabase/server';
@@ -7,8 +8,9 @@ import { extractNames } from '@onlook/utility';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function GET(request: NextRequest) {
-    const { searchParams, origin } = new URL(request.url);
+    const { searchParams } = new URL(request.url);
     const code = searchParams.get('code');
+    const origin = env.NEXT_PUBLIC_SITE_URL;
 
     if (code) {
         const supabase = await createClient();
@@ -60,7 +62,6 @@ export async function GET(request: NextRequest) {
                 }
             });
 
-            // Always use the request origin to prevent open redirect via X-Forwarded-Host header manipulation
             return NextResponse.redirect(`${origin}${Routes.AUTH_REDIRECT}`);
         }
         console.error(`Error exchanging code for session: ${error}`);
