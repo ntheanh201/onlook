@@ -2,7 +2,7 @@ import type { IFrameView } from '@/app/project/[id]/_components/canvas/frame/vie
 import { api } from '@/trpc/client';
 import { toDbFrame, toDbPartialFrame } from '@onlook/db';
 import { type Frame } from '@onlook/models';
-import { calculateNonOverlappingPosition } from '@onlook/utility';
+import { calculateNonOverlappingPosition, replaceDynamicRouteSegments } from '@onlook/utility';
 import { debounce } from 'lodash';
 import { makeAutoObservable } from 'mobx';
 import { v4 as uuid } from 'uuid';
@@ -172,7 +172,9 @@ export class FramesManager {
                 return;
             }
 
-            await this.updateAndSaveToStorage(frameId, { url: `${baseUrl}${path}` });
+            await this.updateAndSaveToStorage(frameId, {
+                url: `${baseUrl}${replaceDynamicRouteSegments(path)}`,
+            });
 
             this.editorEngine.pages.setActivePath(frameId, path);
 

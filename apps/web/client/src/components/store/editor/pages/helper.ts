@@ -82,6 +82,8 @@ const ALLOWED_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js'];
 const ROOT_PAGE_NAME = 'Home';
 const ROOT_PATH_IDENTIFIERS = ['', '/', '.'];
 const ROOT_PAGE_COPY_NAME = 'landing-page-copy';
+const DEFAULT_LOCALE = 'en';
+const DYNAMIC_LOCALE_SEGMENTS = ['locale', 'lang', 'language'];
 
 const DEFAULT_PAGE_CONTENT = `export default function Page() {
     return (
@@ -111,9 +113,126 @@ const getDirName = (filePath: string): string => {
     return parts.slice(0, -1).join('/');
 };
 
+const isLayoutFileName = (fileName: string): boolean => {
+    return (
+        fileName.startsWith('layout.') &&
+        ALLOWED_EXTENSIONS.includes(getFileExtension(fileName))
+    );
+};
+
 const joinPath = (...parts: string[]): string => {
     return parts.filter(Boolean).join('/').replace(/\/+/g, '/');
 };
+
+type AppScanOptions = {
+    dynamicSegmentValues: Record<string, string>;
+};
+
+type PageScanFileEntry = Pick<FileEntry, 'name' | 'isDirectory'>;
+
+type PageScanFileSystem = {
+    readDir(path: string): Promise<PageScanFileEntry[]>;
+    readFile(path: string): Promise<string | Uint8Array>;
+};
+
+const getDefaultAppScanOptions = (): AppScanOptions => ({
+    dynamicSegmentValues: {},
+});
+
+const isRouteGroupSegment = (segment: string): boolean =>
+    segment.startsWith('(') && segment.endsWith(')');
+
+const isParallelRouteSegment = (segment: string): boolean => segment.startsWith('@');
+
+const getDynamicSegmentName = (segment: string): string | null => {
+    const match = segment.match(/^\[{1,2}(?:\.\.\.)?([^\]]+)\]{1,2}$/);
+    return match?.[1] ?? null;
+};
+
+const getRouteSegment = (segment: string, options: AppScanOptions): string | null => {
+    if (isRouteGroupSegment(segment) || isParallelRouteSegment(segment)) {
+        return null;
+    }
+
+    const dynamicSegmentName = getDynamicSegmentName(segment);
+    if (!dynamicSegmentName) {
+        return segment;
+    }
+
+    return options.dynamicSegmentValues[dynamicSegmentName] ?? segment;
+};
+
+const appendAppRouteSegment = (
+    parentPath: string,
+    segment: string,
+    options: AppScanOptions,
+): string => {
+    const routeSegment = getRouteSegment(segment, options);
+    return routeSegment ? joinPath(parentPath, routeSegment) : parentPath;
+};
+
+const getPageDisplayName = (parentPath: string, currentDir: string): string => {
+    if (!parentPath) {
+        return ROOT_PAGE_NAME;
+    }
+
+    const routeSegment = getBaseName(parentPath);
+    return routeSegment || currentDir;
+};
+
+const detectDefaultLocale = async (fileSystem: PageScanFileSystem): Promise<string> => {
+    const candidatePaths = ['i18n/routing.ts', 'src/i18n/routing.ts', 'config.ts', 'src/config.ts'];
+
+    for (const filePath of candidatePaths) {
+        try {
+            const file = await fileSystem.readFile(filePath);
+            if (typeof file !== 'string') {
+                continue;
+            }
+
+            const defaultLocaleMatch = file.match(/defaultLocale\s*:\s*['"]([^'"]+)['"]/);
+            if (defaultLocaleMatch?.[1]) {
+                return defaultLocaleMatch[1];
+            }
+        } catch {
+            continue;
+        }
+    }
+
+    return DEFAULT_LOCALE;
+};
+
+const getAppScanOptions = async (fileSystem: PageScanFileSystem): Promise<AppScanOptions> => {
+    const defaultLocale = await detectDefaultLocale(fileSystem);
+
+    return {
+        dynamicSegmentValues: Object.fromEntries(
+            DYNAMIC_LOCALE_SEGMENTS.map((segment) => [segment, defaultLocale]),
+        ),
+    };
+};
+
+const createProviderPageScanFileSystem = (provider: Provider): PageScanFileSystem => ({
+    readDir: async (path: string) => {
+        const result = await provider.listFiles({ args: { path } });
+        return result.files.map((file) => ({
+            name: file.name,
+            isDirectory: file.type === 'directory',
+        }));
+    },
+    readFile: async (path: string) => {
+        const result = await provider.readFile({ args: { path } });
+        if (result.file.content == null) {
+            throw new Error(`File ${path} is empty`);
+        }
+        return result.file.content;
+    },
+});
+
+const createSandboxPageScanFileSystem = (sandboxManager: SandboxManager): PageScanFileSystem => ({
+    readDir: (path: string) => sandboxManager.readDir(path),
+    readFile: (path: string) => sandboxManager.readFile(path),
+});
 
 // Helper function to extract metadata from file content
 const extractMetadata = async (content: string | Uint8Array): Promise<PageMetadata | undefined> => {
@@ -204,15 +323,16 @@ const extractMetadata = async (content: string | Uint8Array): Promise<PageMetada
 };
 
 export const scanAppDirectory = async (
-    sandboxManager: SandboxManager,
+    fileSystem: PageScanFileSystem,
     dir: string,
     parentPath = '',
+    options: AppScanOptions = getDefaultAppScanOptions(),
 ): Promise<PageNode[]> => {
     const nodes: PageNode[] = [];
-    let entries: FileEntry[];
+    let entries: PageScanFileEntry[];
 
     try {
-        entries = await sandboxManager.readDir(dir);
+        entries = await fileSystem.readDir(dir);
     } catch (error) {
         console.error(`Error reading directory ${dir}:`, error);
         return nodes;
@@ -225,21 +345,21 @@ export const scanAppDirectory = async (
     );
 
     if (pageFile) {
-        const fileEntries: (FileEntry | null)[] = [
+        const fileEntries: (PageScanFileEntry | null)[] = [
             pageFile,
             layoutFile || null
         ];
 
         const childPromises = childDirectories.map((entry) => {
             const fullPath = `${dir}/${entry.name}`;
-            const relativePath = joinPath(parentPath, entry.name);
-            return scanAppDirectory(sandboxManager, fullPath, relativePath);
+            const relativePath = appendAppRouteSegment(parentPath, entry.name, options);
+            return scanAppDirectory(fileSystem, fullPath, relativePath, options);
         });
 
         const childResults = await Promise.all(childPromises);
         const children = childResults.flat();
 
-        const { pageMetadata, layoutMetadata } = await getPageAndLayoutMetadata(fileEntries, sandboxManager, dir);
+        const { pageMetadata, layoutMetadata } = await getPageAndLayoutMetadata(fileEntries, fileSystem, dir);
 
         const metadata = {
             ...layoutMetadata,
@@ -248,26 +368,13 @@ export const scanAppDirectory = async (
 
         // Create page node
         const currentDir = getBaseName(dir);
-        const isDynamicRoute = currentDir.startsWith('[') && currentDir.endsWith(']');
-
-        let cleanPath;
-        if (isDynamicRoute) {
-            const paramName = currentDir;
-            cleanPath = parentPath ? joinPath(getDirName(parentPath), paramName) : '/' + paramName;
-        } else {
-            cleanPath = parentPath ? `/${parentPath}` : '/';
-        }
-
+        let cleanPath = parentPath ? `/${parentPath}` : '/';
         cleanPath = '/' + cleanPath.replace(/^\/|\/$/g, '');
         const isRoot = ROOT_PATH_IDENTIFIERS.includes(cleanPath);
 
         nodes.push({
             id: nanoid(),
-            name: isDynamicRoute
-                ? currentDir
-                : parentPath
-                    ? getBaseName(parentPath)
-                    : ROOT_PAGE_NAME,
+            name: getPageDisplayName(parentPath, currentDir),
             path: cleanPath,
             children,
             isActive: false,
@@ -277,44 +384,27 @@ export const scanAppDirectory = async (
     } else {
         const childPromises = childDirectories.map(async (entry) => {
             const fullPath = `${dir}/${entry.name}`;
-            const relativePath = joinPath(parentPath, entry.name);
-            const children = await scanAppDirectory(sandboxManager, fullPath, relativePath);
-
-            if (children.length > 0) {
-                const currentDirName = getBaseName(dir);
-                const containerPath = parentPath ? `/${parentPath}` : `/${currentDirName}`;
-                const cleanPath = containerPath.replace(/\/+/g, '/');
-                return {
-                    id: nanoid(),
-                    name: currentDirName,
-                    path: cleanPath,
-                    children,
-                    isActive: false,
-                    isRoot: false,
-                    metadata: {},
-                };
-            }
-            return null;
+            const relativePath = appendAppRouteSegment(parentPath, entry.name, options);
+            return scanAppDirectory(fileSystem, fullPath, relativePath, options);
         });
 
         const childResults = await Promise.all(childPromises);
-        const validNodes = childResults.filter((node) => node !== null);
-        nodes.push(...validNodes);
+        nodes.push(...childResults.flat());
     }
 
     return nodes;
 };
 
 const scanPagesDirectory = async (
-    sandboxManager: SandboxManager,
+    fileSystem: PageScanFileSystem,
     dir: string,
     parentPath = '',
 ): Promise<PageNode[]> => {
     const nodes: PageNode[] = [];
-    let entries: FileEntry[];
+    let entries: PageScanFileEntry[];
 
     try {
-        entries = await sandboxManager.readDir(dir);
+        entries = await fileSystem.readDir(dir);
     } catch (error) {
         console.error(`Error reading directory ${dir}:`, error);
         return nodes;
@@ -355,7 +445,7 @@ const scanPagesDirectory = async (
             // Extract metadata from the page file
             let metadata: PageMetadata | undefined;
             try {
-                const fileContent = await sandboxManager.readFile(`${dir}/${entry.name}`);
+                const fileContent = await fileSystem.readFile(`${dir}/${entry.name}`);
                 if (typeof fileContent !== 'string') {
                     throw new Error(`File ${dir}/${entry.name} is not a text file`);
                 }
@@ -394,7 +484,7 @@ const scanPagesDirectory = async (
         const relativePath = joinPath(parentPath, dirNameForPath);
 
         if (entry.isDirectory) {
-            const children = await scanPagesDirectory(sandboxManager, fullPath, relativePath);
+            const children = await scanPagesDirectory(fileSystem, fullPath, relativePath);
             if (children.length > 0) {
                 const dirPath = relativePath.replace(/\\/g, '/');
                 const cleanPath = '/' + dirPath.replace(/^\/|\/$/g, '');
@@ -423,10 +513,19 @@ export const scanPagesFromSandbox = async (sandboxManager: SandboxManager): Prom
         return [];
     }
 
+    const fileSystem = sandboxManager.session.provider
+        ? createProviderPageScanFileSystem(sandboxManager.session.provider)
+        : createSandboxPageScanFileSystem(sandboxManager);
+
     if (routerConfig.type === RouterType.APP) {
-        return await scanAppDirectory(sandboxManager, routerConfig.basePath);
+        return await scanAppDirectory(
+            fileSystem,
+            routerConfig.basePath,
+            '',
+            await getAppScanOptions(fileSystem),
+        );
     } else {
-        return await scanPagesDirectory(sandboxManager, routerConfig.basePath);
+        return await scanPagesDirectory(fileSystem, routerConfig.basePath);
     }
 };
 
@@ -442,15 +541,26 @@ export const detectRouterConfig = async (
             const result = await provider.listFiles({ args: { path: appPath } });
             const entries = result.files;
             if (entries && entries.length > 0) {
-                // Check for layout file (required for App Router)
                 const hasLayout = entries.some(
-                    (entry) =>
-                        entry.type === 'file' &&
-                        entry.name.startsWith('layout.') &&
-                        ALLOWED_EXTENSIONS.includes(getFileExtension(entry.name)),
+                    (entry) => entry.type === 'file' && isLayoutFileName(entry.name),
                 );
 
-                if (hasLayout) {
+                const hasNestedLayout = await Promise.any(
+                    entries
+                        .filter((entry) => entry.type === 'directory')
+                        .map(async (entry) => {
+                            const nestedResult = await provider.listFiles({
+                                args: { path: `${appPath}/${entry.name}` },
+                            });
+                            return nestedResult.files.some(
+                                (nestedEntry) =>
+                                    nestedEntry.type === 'file' &&
+                                    isLayoutFileName(nestedEntry.name),
+                            );
+                        }),
+                ).catch(() => false);
+
+                if (hasLayout || hasNestedLayout) {
                     return { type: RouterType.APP, basePath: appPath };
                 }
             }
@@ -1033,7 +1143,7 @@ export const parseRepoUrl = (repoUrl: string): { owner: string; repo: string } =
     };
 };
 
-const getPageAndLayoutFiles = (entries: FileEntry[]) => {
+const getPageAndLayoutFiles = (entries: PageScanFileEntry[]) => {
     const pageFile = entries.find(
         (entry) =>
             !entry.isDirectory &&
@@ -1052,8 +1162,8 @@ const getPageAndLayoutFiles = (entries: FileEntry[]) => {
 };
 
 const getPageAndLayoutMetadata = async (
-    fileResults: (FileEntry | null)[],
-    sandboxManager: SandboxManager,
+    fileResults: (PageScanFileEntry | null)[],
+    fileSystem: PageScanFileSystem,
     dir?: string,
 ): Promise<{
     pageMetadata: PageMetadata | undefined;
@@ -1070,21 +1180,21 @@ const getPageAndLayoutMetadata = async (
 
     if (pageFileResult && !pageFileResult.isDirectory) {
         try {
-            const filePath = dir ? `${dir}/${pageFileResult.name}` : pageFileResult.path;
-            const fileContent = await sandboxManager.readFile(filePath);
+            const filePath = dir ? `${dir}/${pageFileResult.name}` : pageFileResult.name;
+            const fileContent = await fileSystem.readFile(filePath);
             pageMetadata = await extractMetadata(fileContent);
         } catch (error) {
-            console.error(`Error reading page file ${pageFileResult.path}:`, error);
+            console.error(`Error reading page file ${pageFileResult.name}:`, error);
         }
     }
 
     if (layoutFileResult && !layoutFileResult.isDirectory) {
         try {
-            const filePath = dir ? `${dir}/${layoutFileResult.name}` : layoutFileResult.path;
-            const fileContent = await sandboxManager.readFile(filePath);
+            const filePath = dir ? `${dir}/${layoutFileResult.name}` : layoutFileResult.name;
+            const fileContent = await fileSystem.readFile(filePath);
             layoutMetadata = await extractMetadata(fileContent);
         } catch (error) {
-            console.error(`Error reading layout file ${layoutFileResult.path}:`, error);
+            console.error(`Error reading layout file ${layoutFileResult.name}:`, error);
         }
     }
 

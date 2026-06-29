@@ -48,3 +48,4 @@ mise.toml
 # Temporary files
 .tmp/
 .tmp-imports/
+.next-patch-cache/

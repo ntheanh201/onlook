@@ -24,6 +24,7 @@ export class SandboxManager {
     private sync: CodeProviderSync | null = null;
     preloadScriptState: PreloadScriptState = PreloadScriptState.NOT_INJECTED
     routerConfig: RouterConfig | null = null;
+    isPreviewReady = false;
 
     constructor(
         private branch: Branch,
@@ -78,6 +79,7 @@ export class SandboxManager {
             this.sync.release();
             this.sync = null;
         }
+        this.isPreviewReady = false;
 
         this.sync = CodeProviderSync.getInstance(provider, this.fs, this.branch.sandbox.id, {
             exclude: EXCLUDED_SYNC_PATHS,
@@ -86,6 +88,8 @@ export class SandboxManager {
         await this.sync.start();
         await this.ensurePreloadScriptExists();
         await this.fs.rebuildIndex();
+        this.isPreviewReady = true;
+        await this.sync.startWatching();
     }
 
     private async ensurePreloadScriptExists(): Promise<void> {
@@ -219,6 +223,7 @@ export class SandboxManager {
         this.sync?.release();
         this.sync = null;
         this.preloadScriptState = PreloadScriptState.NOT_INJECTED
+        this.isPreviewReady = false;
         this.session.clear();
     }
 }

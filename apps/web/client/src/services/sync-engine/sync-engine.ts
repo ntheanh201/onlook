@@ -15,6 +15,43 @@ export interface SyncConfig {
 }
 
 const DEFAULT_EXCLUDES = ['node_modules', '.git', '.next', 'dist', 'build', '.turbo'];
+const PROVIDER_READ_CONCURRENCY = 16;
+const DEFAULT_INCLUDED_TOP_LEVEL_PATHS = new Set([
+    'app',
+    'components',
+    'lib',
+    'pages',
+    'providers',
+    'src',
+]);
+const DEFAULT_INCLUDED_ROOT_FILES = new Set([
+    'components.json',
+    'next.config.js',
+    'next.config.mjs',
+    'next.config.ts',
+    'package.json',
+    'postcss.config.js',
+    'postcss.config.mjs',
+    'postcss.config.ts',
+    'tailwind.config.js',
+    'tailwind.config.mjs',
+    'tailwind.config.ts',
+    'tsconfig.json',
+]);
+const DEFAULT_INCLUDED_FILE_EXTENSIONS = new Set(['.css', '.js', '.json', '.jsx', '.mjs', '.tsx']);
+const DEFAULT_EXCLUDED_FILE_EXTENSIONS = new Set([
+    '.bmp',
+    '.gif',
+    '.ico',
+    '.jpeg',
+    '.jpg',
+    '.png',
+    '.sqlite',
+    '.sqlite-shm',
+    '.sqlite-wal',
+    '.tsbuildinfo',
+    '.webp',
+]);
 
 export async function hashContent(content: string | Uint8Array): Promise<string> {
     const encoder = new TextEncoder();
@@ -22,6 +59,28 @@ export async function hashContent(content: string | Uint8Array): Promise<string>
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function mapWithConcurrency<T, R>(
+    items: T[],
+    concurrency: number,
+    mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+    const results: R[] = [];
+    let index = 0;
+
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (index < items.length) {
+            const currentIndex = index++;
+            const item = items[currentIndex];
+            if (item !== undefined) {
+                results[currentIndex] = await mapper(item);
+            }
+        }
+    });
+
+    await Promise.all(workers);
+    return results;
 }
 
 interface SyncInstance {
@@ -39,6 +98,7 @@ export class CodeProviderSync {
     private readonly excludes: string[];
     private readonly excludePatterns: string[];
     private fileHashes = new Map<string, string>();
+    private filesPendingProviderPush = new Set<string>();
     private instanceKey: string | null = null;
 
     private constructor(
@@ -156,13 +216,20 @@ export class CodeProviderSync {
 
         try {
             await this.pullFromSandbox();
-            await this.setupWatching();
             // Push any locally modified files (with OIDs) back to sandbox. This is required for the first time sync.
             void this.pushModifiedFilesToSandbox();
         } catch (error) {
             this.isRunning = false;
             throw error;
         }
+    }
+
+    async startWatching(): Promise<void> {
+        if (!this.isRunning || this.watcher || this.localWatcher) {
+            return;
+        }
+
+        await this.setupWatching();
     }
 
     stop(): void {
@@ -183,7 +250,8 @@ export class CodeProviderSync {
     }
 
     private async pullFromSandbox(): Promise<void> {
-        const sandboxEntries = await this.getAllSandboxFiles('./');
+        const sandboxEntries = await this.getAllSandboxFiles('');
+        console.log(`[Sync] Pulled ${sandboxEntries.length} entries from sandbox`);
         const sandboxEntriesSet = new Set(
             sandboxEntries.map((e) => (e.path.startsWith('/') ? e.path : `/${e.path}`)),
         );
@@ -216,25 +284,25 @@ export class CodeProviderSync {
         }
 
         // Process sandbox entries
-        const directoriesToCreate = [];
-        const filesToWrite = [];
-
-        for (const entry of sandboxEntries) {
-            if (entry.type === 'directory') {
-                directoriesToCreate.push(entry.path);
-            } else {
+        const directoriesToCreate = sandboxEntries
+            .filter((entry) => entry.type === 'directory')
+            .map((entry) => entry.path);
+        const fileEntries = sandboxEntries.filter((entry) => entry.type === 'file');
+        const filesToWrite = (
+            await mapWithConcurrency(fileEntries, PROVIDER_READ_CONCURRENCY, async (entry) => {
                 try {
                     const result = await this.provider.readFile({ args: { path: entry.path } });
                     const { file } = result;
 
                     if ((file.type === 'text' || file.type === 'binary') && file.content) {
-                        filesToWrite.push({ path: entry.path, content: file.content });
+                        return { path: entry.path, content: file.content };
                     }
                 } catch (error) {
                     console.debug(`[Sync] Skipping ${entry.path}:`, error);
                 }
-            }
-        }
+                return null;
+            })
+        ).filter((file): file is { path: string; content: string | Uint8Array } => file !== null);
 
         // Create directories first
         for (const dirPath of directoriesToCreate) {
@@ -248,11 +316,16 @@ export class CodeProviderSync {
         // Write files sequentially to avoid race conditions
         for (const { path, content } of filesToWrite) {
             try {
-                await this.fs.writeFile(path, content);
+                const changed = await this.fs.writeFileFromProvider(path, content);
+                if (changed) {
+                    this.filesPendingProviderPush.add(path);
+                }
             } catch (error) {
                 console.error(`[Sync] Failed to write ${path}:`, error);
             }
         }
+
+        console.log(`[Sync] Wrote ${filesToWrite.length} files to local filesystem`);
 
         // Store hashes of files so we can skip syncing if the content hasn't changed later.
         for (const { path, content } of filesToWrite) {
@@ -267,12 +340,11 @@ export class CodeProviderSync {
         const files: Array<{ path: string; type: 'file' | 'directory' }> = [];
 
         try {
-            const result = await this.provider.listFiles({ args: { path: dir } });
+            const result = await this.provider.listFiles({ args: { path: dir || '.' } });
             const entries = result.files;
 
             for (const entry of entries) {
-                // Build path - when dir is './', just use entry.name
-                const fullPath = dir === './' ? entry.name : `${dir}/${entry.name}`;
+                const fullPath = dir ? `${dir}/${entry.name}` : entry.name;
 
                 if (entry.type === 'directory') {
                     // Check if directory should be excluded
@@ -304,16 +376,23 @@ export class CodeProviderSync {
         console.log('[Sync] Pushing locally modified files back to sandbox...');
 
         try {
-            // Get all local JSX/TSX files that might have been modified with OIDs
-            const localFiles = await this.fs.listFiles('/');
-            const jsxFiles = localFiles.filter(path => /\.(jsx?|tsx?)$/i.test(path));
+            const changedFiles = Array.from(this.filesPendingProviderPush);
+            if (changedFiles.length === 0) {
+                return;
+            }
 
             // TODO: Use available batch write API
             await Promise.all(
-                jsxFiles.map(async (filePath) => {
+                changedFiles.map(async (filePath) => {
                     try {
                         const content = await this.fs.readFile(filePath);
                         if (typeof content === 'string') {
+                            const existingHash = this.fileHashes.get(filePath);
+                            const currentHash = await hashContent(content);
+                            if (existingHash === currentHash) {
+                                return;
+                            }
+
                             // Push to sandbox
                             await this.provider.writeFile({
                                 args: {
@@ -322,8 +401,10 @@ export class CodeProviderSync {
                                     overwrite: true
                                 }
                             });
+                            this.fileHashes.set(filePath, currentHash);
                             console.log(`[Sync] Pushed ${filePath} to sandbox`);
                         }
+                        this.filesPendingProviderPush.delete(filePath);
                     } catch (error) {
                         console.warn(`[Sync] Failed to push ${filePath} to sandbox:`, error);
                     }
@@ -335,6 +416,40 @@ export class CodeProviderSync {
     }
 
     private shouldSync(path: string): boolean {
+        const lowerPath = path.toLowerCase();
+        const normalizedPath = lowerPath.startsWith('./')
+            ? lowerPath.slice(2)
+            : lowerPath.startsWith('/')
+                ? lowerPath.slice(1)
+                : lowerPath;
+        const topLevelPath = normalizedPath.split('/')[0];
+        if (
+            normalizedPath.includes('/') &&
+            topLevelPath &&
+            !DEFAULT_INCLUDED_TOP_LEVEL_PATHS.has(topLevelPath)
+        ) {
+            return false;
+        }
+
+        if (!normalizedPath.includes('/') && !DEFAULT_INCLUDED_ROOT_FILES.has(normalizedPath)) {
+            return false;
+        }
+
+        const fileName = lowerPath.split('/').pop() ?? lowerPath;
+        const dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex > 0) {
+            const extension = fileName.slice(dotIndex);
+            if (!DEFAULT_INCLUDED_FILE_EXTENSIONS.has(extension)) {
+                return false;
+            }
+        }
+
+        for (const extension of DEFAULT_EXCLUDED_FILE_EXTENSIONS) {
+            if (lowerPath.endsWith(extension)) {
+                return false;
+            }
+        }
+
         // Check if path matches any exclude pattern
         const isExcluded = this.excludes.some((exc) => {
             // Check if path is within excluded directory or is the excluded item itself
@@ -412,7 +527,10 @@ export class CodeProviderSync {
                                                 (file.type === 'text' || file.type === 'binary') &&
                                                 file.content
                                             ) {
-                                                await this.fs.writeFile(newPath, file.content);
+                                                const changed = await this.fs.writeFileFromProvider(newPath, file.content);
+                                                if (changed) {
+                                                    this.filesPendingProviderPush.add(newPath);
+                                                }
                                                 const hash = await hashContent(file.content);
                                                 this.fileHashes.set(newPath, hash);
                                             }
@@ -481,7 +599,10 @@ export class CodeProviderSync {
                                                                     });
                                                                     if (fileResult.file.content !== undefined) {
                                                                         // Write file even if content is empty (like .gitkeep)
-                                                                        await this.fs.writeFile(itemLocalPath, fileResult.file.content || '');
+                                                                        const changed = await this.fs.writeFileFromProvider(itemLocalPath, fileResult.file.content || '');
+                                                                        if (changed) {
+                                                                            this.filesPendingProviderPush.add(itemLocalPath);
+                                                                        }
                                                                         // Update hash tracking
                                                                         const hash = await hashContent(fileResult.file.content || '');
                                                                         this.fileHashes.set(itemLocalPath, hash);
@@ -524,7 +645,10 @@ export class CodeProviderSync {
                                             const existingHash = this.fileHashes.get(localPath);
 
                                             if (newHash !== existingHash) {
-                                                await this.fs.writeFile(localPath, file.content);
+                                                const changed = await this.fs.writeFileFromProvider(localPath, file.content);
+                                                if (changed) {
+                                                    this.filesPendingProviderPush.add(localPath);
+                                                }
                                                 this.fileHashes.set(localPath, newHash);
                                             } else {
                                                 console.debug(

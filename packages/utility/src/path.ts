@@ -100,6 +100,45 @@ export const isRootLayoutFile = (
     });
 };
 
+export const isAppEntryLayoutFile = (filePath: string): boolean => {
+    if (isRootLayoutFile(filePath, RouterType.APP)) {
+        return true;
+    }
+
+    const fileExtWithDot = path.extname(filePath);
+    if (!fileExtWithDot) {
+        return false;
+    }
+
+    const hasValidExtension = NEXT_JS_FILE_EXTENSIONS.some((ext) =>
+        ext.startsWith('.') ? ext === fileExtWithDot : ext === fileExtWithDot.slice(1),
+    );
+
+    if (!hasValidExtension) {
+        return false;
+    }
+
+    const baseName = path.basename(filePath, fileExtWithDot);
+    if (baseName !== 'layout') {
+        return false;
+    }
+
+    const segments = normalize(path.dirname(filePath)).split('/').filter(Boolean);
+    const appIndex = segments.findIndex((segment, index) => {
+        if (segment !== 'app') {
+            return false;
+        }
+        return index === 0 || segments[index - 1] === 'src';
+    });
+
+    if (appIndex === -1) {
+        return false;
+    }
+
+    const segmentsAfterApp = segments.length - appIndex - 1;
+    return segmentsAfterApp === 1;
+};
+
 /**
  * Compare two file paths for equality, handling different formats robustly
  * Normalizes both paths before comparison to handle leading slashes, double slashes, etc.
@@ -126,4 +165,8 @@ export function pathMatchesAny(targetPath: string, paths: string[]): boolean {
 
 export function findMatchingPath(targetPath: string, paths: string[]): string | undefined {
     return paths.find(p => pathsEqual(targetPath, p));
+}
+
+export function replaceDynamicRouteSegments(pathname: string): string {
+    return pathname.replace(/\[\.\.\.([^\]]+)\]/g, 'temp-$1').replace(/\[([^\]]+)\]/g, 'temp-$1');
 }

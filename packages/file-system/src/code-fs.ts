@@ -11,7 +11,7 @@ import {
     getContentFromTemplateNode,
     injectPreloadScript,
 } from '@onlook/parser';
-import { isRootLayoutFile, pathsEqual } from '@onlook/utility';
+import { isAppEntryLayoutFile, pathsEqual } from '@onlook/utility';
 
 import type { JsxElementMetadata } from './index-cache';
 import { FileSystem } from './fs';
@@ -33,6 +33,7 @@ export class CodeFileSystem extends FileSystem {
     private branchId: string;
     private options: Required<CodeEditorOptions>;
     private indexPath = `${ONLOOK_CACHE_DIRECTORY}/index.json`;
+    private indexRebuildPromise: Promise<void> | null = null;
 
     constructor(projectId: string, branchId: string, options: CodeEditorOptions = {}) {
         super(`/${projectId}/${branchId}`);
@@ -52,6 +53,17 @@ export class CodeFileSystem extends FileSystem {
         }
     }
 
+    async writeFileFromProvider(path: string, content: string | Uint8Array): Promise<boolean> {
+        if (this.shouldInjectOids(path, content)) {
+            const processedContent = await this.injectOids(path, content);
+            await super.writeFile(path, processedContent);
+            return processedContent !== content;
+        } else {
+            await super.writeFile(path, content);
+            return false;
+        }
+    }
+
     async writeFiles(files: Array<{ path: string; content: string | Uint8Array }>): Promise<void> {
         // Write files sequentially to avoid race conditions to metadata file
         for (const { path, content } of files) {
@@ -60,26 +72,41 @@ export class CodeFileSystem extends FileSystem {
     }
 
     private async processJsxFile(path: string, content: string): Promise<string> {
-        let processedContent = content;
-
-        const ast = getAstFromContent(content);
-        if (ast) {
-            if (isRootLayoutFile(path, this.options.routerType)) {
-                injectPreloadScript(ast);
-            }
-
-            const existingOids = await this.getFileOids(path);
-            const { ast: processedAst } = addOidsToAst(ast, existingOids);
-
-            processedContent = await getContentFromAst(processedAst, content);
-        } else {
-            console.warn(`Failed to parse ${path}, skipping OID injection but will still format`);
-        }
+        const processedContent = await this.injectOids(path, content);
 
         const formattedContent = await formatContent(path, processedContent);
         await this.updateMetadataForFile(path, formattedContent);
 
         return formattedContent;
+    }
+
+    private shouldInjectOids(path: string, content: string | Uint8Array): content is string {
+        if (!this.isJsxFile(path) || typeof content !== 'string') {
+            return false;
+        }
+
+        if (/\.(jsx|tsx)$/i.test(path)) {
+            return true;
+        }
+
+        return content.includes('data-oid') || new RegExp('<[A-Za-z][A-Za-z0-9.:-]*(\\\\s|>|/)').test(content);
+    }
+
+    private async injectOids(path: string, content: string): Promise<string> {
+        const ast = getAstFromContent(content);
+        if (!ast) {
+            console.warn(`Failed to parse ${path}, skipping OID injection`);
+            return content;
+        }
+
+        if (isAppEntryLayoutFile(path)) {
+            injectPreloadScript(ast);
+        }
+
+        const existingOids = await this.getFileOids(path);
+        const { ast: processedAst } = addOidsToAst(ast, existingOids);
+
+        return await getContentFromAst(processedAst, content);
     }
 
     private async getFileOids(path: string): Promise<Set<string>> {
@@ -127,13 +154,29 @@ export class CodeFileSystem extends FileSystem {
 
     async getJsxElementMetadata(oid: string): Promise<JsxElementMetadata | undefined> {
         const index = await this.loadIndex();
-        const metadata = index[oid];
+        let metadata = index[oid];
+        const indexSize = Object.keys(index).length;
+
+        if (!metadata && indexSize === 0) {
+            await this.rebuildIndexOnce();
+            const rebuiltIndex = await this.loadIndex();
+            metadata = rebuiltIndex[oid];
+        }
+
         if (!metadata) {
+            const latestIndex = getIndexFromCache(this.getCacheKey()) ?? index;
             console.warn(
-                `[CodeEditorApi] No metadata found for OID: ${oid}. Total index size: ${Object.keys(index).length}`,
+                `[CodeEditorApi] No metadata found for OID: ${oid}. Total index size: ${Object.keys(latestIndex).length}`,
             );
         }
         return metadata;
+    }
+
+    private async rebuildIndexOnce(): Promise<void> {
+        this.indexRebuildPromise ??= this.rebuildIndex().finally(() => {
+            this.indexRebuildPromise = null;
+        });
+        await this.indexRebuildPromise;
     }
 
     async rebuildIndex(): Promise<void> {

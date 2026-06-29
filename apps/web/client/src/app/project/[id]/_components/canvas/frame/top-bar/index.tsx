@@ -3,6 +3,7 @@ import type { Frame } from '@onlook/models';
 import { Button } from '@onlook/ui/button';
 import { Icons } from '@onlook/ui/icons';
 import { cn } from '@onlook/ui/utils';
+import { replaceDynamicRouteSegments } from '@onlook/utility';
 import { observer } from 'mobx-react-lite';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
@@ -206,7 +207,7 @@ export const TopBar = observer(
                         className={cn(
                             'absolute right-1 top-1/2 -translate-y-1/2 transition-opacity duration-300',
                         )}
-                        href={frame.url.replace(/\[([^\]]+)\]/g, 'temp-$1')} // Dynamic routes are not supported so we replace them with a temporary value
+                        href={replaceDynamicRouteSegments(frame.url)}
                         target="_blank"
                         style={{
                             transform: `scale(${1 / editorEngine.canvas.scale})`,

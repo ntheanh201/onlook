@@ -46,9 +46,10 @@ export function initModel({
 }
 
 function getOpenRouterProvider(model: OPENROUTER_MODELS): LanguageModel {
-    if (!process.env.OPENROUTER_API_KEY) {
-        throw new Error('OPENROUTER_API_KEY must be set');
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey || !apiKey.startsWith('sk-or-v1-')) {
+        throw new Error('OPENROUTER_API_KEY must be set to a valid OpenRouter key');
     }
-    const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
+    const openrouter = createOpenRouter({ apiKey });
     return openrouter(model);
 }

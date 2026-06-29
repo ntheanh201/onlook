@@ -3,8 +3,9 @@ import { PreloadScriptState } from '@/components/store/editor/sandbox';
 import { type Frame } from '@onlook/models';
 import { Icons } from '@onlook/ui/icons';
 import { colors } from '@onlook/ui/tokens';
+import { cn } from '@onlook/ui/utils';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RightClickMenu } from '../../right-click-menu';
 import { GestureScreen } from './gesture';
 import { ResizeHandles } from './resize-handles';
@@ -42,8 +43,10 @@ const LOADING_MESSAGES = [
 export const FrameView = observer(({ frame, isInDragSelection = false }: { frame: Frame; isInDragSelection?: boolean }) => {
     const editorEngine = useEditorEngine();
     const iFrameRef = useRef<IFrameView>(null);
+    const hasFrameLoadedRef = useRef(false);
     const [isResizing, setIsResizing] = useState(false);
     const [messageIndex, setMessageIndex] = useState(0);
+    const [hasFrameLoaded, setHasFrameLoaded] = useState(false);
     const MESSAGE_INTERVAL = 12000;
 
     const {
@@ -58,8 +61,16 @@ export const FrameView = observer(({ frame, isInDragSelection = false }: { frame
 
     const isSelected = editorEngine.frames.isSelected(frame.id);
     const branchData = editorEngine.branches.getBranchDataById(frame.branchId);
+    const sandboxReady = branchData?.sandbox?.isPreviewReady ?? false;
     const preloadScriptReady = branchData?.sandbox?.preloadScriptState === PreloadScriptState.INJECTED;
-    const isFrameReady = preloadScriptReady && !(isConnecting && !hasTimedOut);
+    const isFrameReady = sandboxReady && (hasFrameLoaded || (preloadScriptReady && !(isConnecting && !hasTimedOut)));
+    const shouldAllowFrameInteraction = sandboxReady && (hasFrameLoaded || hasTimedOut);
+
+    const handleFrameConnectionFailed = useCallback(() => {
+        if (!hasFrameLoadedRef.current) {
+            handleConnectionFailed();
+        }
+    }, [handleConnectionFailed]);
 
     useEffect(() => {
         if (isFrameReady) {
@@ -73,6 +84,16 @@ export const FrameView = observer(({ frame, isInDragSelection = false }: { frame
 
         return () => clearInterval(interval);
     }, [isFrameReady]);
+
+    useEffect(() => {
+        hasFrameLoadedRef.current = false;
+        setHasFrameLoaded(false);
+    }, [reloadKey]);
+
+    const handleFrameLoaded = useCallback(() => {
+        hasFrameLoadedRef.current = true;
+        setHasFrameLoaded(true);
+    }, []);
 
     return (
         <div
@@ -97,18 +118,27 @@ export const FrameView = observer(({ frame, isInDragSelection = false }: { frame
                 <FrameComponent
                     key={reloadKey}
                     frame={frame}
+                    enabled={sandboxReady}
                     reloadIframe={immediateReload}
-                    onConnectionFailed={handleConnectionFailed}
+                    onConnectionFailed={handleFrameConnectionFailed}
                     onConnectionSuccess={handleConnectionSuccess}
                     penpalTimeoutMs={getPenpalTimeout()}
                     isInDragSelection={isInDragSelection}
                     ref={iFrameRef}
+                    onLoad={handleFrameLoaded}
                 />
-                <GestureScreen frame={frame} isResizing={isResizing} />
+                <GestureScreen
+                    frame={frame}
+                    isResizing={isResizing}
+                    allowFrameInteraction={sandboxReady && hasFrameLoaded && !preloadScriptReady}
+                />
 
                 {!isFrameReady && (
                     <div
-                        className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 rounded-md"
+                        className={cn(
+                            'absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 rounded-md',
+                            shouldAllowFrameInteraction && 'pointer-events-none',
+                        )}
                         style={{
                             width: frame.dimension.width,
                             height: frame.dimension.height,

@@ -73,6 +73,7 @@ const createSafeFallbackMethods = (): PromisifiedPendpalChildMethods => {
 
 interface FrameViewProps extends IframeHTMLAttributes<HTMLIFrameElement> {
     frame: Frame;
+    enabled?: boolean;
     reloadIframe: () => void;
     onConnectionFailed: () => void;
     onConnectionSuccess: () => void;
@@ -85,6 +86,7 @@ export const FrameComponent = observer(
         (
             {
                 frame,
+                enabled = true,
                 reloadIframe,
                 onConnectionFailed,
                 onConnectionSuccess,
@@ -94,7 +96,7 @@ export const FrameComponent = observer(
             },
             ref,
         ) => {
-            const { popover, ...props } = restProps;
+            const { popover, onLoad, ...props } = restProps;
             const editorEngine = useEditorEngine();
             const iframeRef = useRef<HTMLIFrameElement>(null);
             const zoomLevel = useRef(1);
@@ -326,6 +328,12 @@ export const FrameComponent = observer(
                 };
             }, []);
 
+            useEffect(() => {
+                if (enabled && iframeRef.current?.contentWindow && !penpalChild) {
+                    setupPenpalConnection();
+                }
+            }, [enabled, penpalChild]);
+
             return (
                 <WebPreview>
                     <WebPreviewBody
@@ -341,7 +349,12 @@ export const FrameComponent = observer(
                         sandbox="allow-modals allow-forms allow-same-origin allow-scripts allow-popups allow-downloads"
                         allow="geolocation; microphone; camera; midi; encrypted-media"
                         style={{ width: frame.dimension.width, height: frame.dimension.height }}
-                        onLoad={setupPenpalConnection}
+                        onLoad={(event) => {
+                            if (enabled) {
+                                setupPenpalConnection();
+                            }
+                            onLoad?.(event);
+                        }}
                         {...props}
                     />
                 </WebPreview>

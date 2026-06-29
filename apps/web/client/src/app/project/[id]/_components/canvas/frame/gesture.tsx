@@ -10,7 +10,16 @@ import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo } from 'react';
 import { RightClickMenu } from '../../right-click-menu';
 
-export const GestureScreen = observer(({ frame, isResizing }: { frame: Frame, isResizing: boolean }) => {
+export const GestureScreen = observer(
+    ({
+        frame,
+        isResizing,
+        allowFrameInteraction = false,
+    }: {
+        frame: Frame;
+        isResizing: boolean;
+        allowFrameInteraction?: boolean;
+    }) => {
     const editorEngine = useEditorEngine();
 
     const getFrameData: () => FrameData | null = useCallback(() => {
@@ -204,13 +213,14 @@ export const GestureScreen = observer(({ frame, isResizing }: { frame: Frame, is
     const gestureScreenClassName = useMemo(() => {
         return cn(
             'absolute inset-0 bg-transparent',
+            allowFrameInteraction && 'pointer-events-none',
             editorEngine.state.editorMode === EditorMode.PREVIEW && !isResizing
                 ? 'hidden'
                 : 'visible',
             editorEngine.state.insertMode === InsertMode.INSERT_DIV && 'cursor-crosshair',
             editorEngine.state.insertMode === InsertMode.INSERT_TEXT && 'cursor-text',
         );
-    }, [editorEngine.state.editorMode, isResizing]);
+    }, [allowFrameInteraction, editorEngine.state.editorMode, isResizing]);
 
     const handleMouseOut = () => {
         editorEngine.elements.clearHoveredElement();
@@ -233,4 +243,5 @@ export const GestureScreen = observer(({ frame, isResizing }: { frame: Frame, is
             ></div>
         </RightClickMenu>
     );
-});
+    },
+);

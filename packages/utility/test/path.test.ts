@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { isRootLayoutFile, isSubdirectory } from '../src/path';
+import {
+    isAppEntryLayoutFile,
+    isRootLayoutFile,
+    isSubdirectory,
+    replaceDynamicRouteSegments,
+} from '../src/path';
 
 describe('isSubdirectory', () => {
     test('returns true for direct subdirectory', () => {
@@ -189,5 +194,43 @@ describe('isTargetFile', () => {
     test('returns false for a file in a completely different directory', () => {
         const targetFile = 'src/components/layout.tsx';
         expect(isRootLayoutFile(targetFile)).toBe(false);
+    });
+});
+
+describe('isAppEntryLayoutFile', () => {
+    test('returns true for direct app layout files', () => {
+        expect(isAppEntryLayoutFile('app/layout.tsx')).toBe(true);
+        expect(isAppEntryLayoutFile('src/app/layout.tsx')).toBe(true);
+    });
+
+    test('returns true for one-level nested app layouts', () => {
+        expect(isAppEntryLayoutFile('app/[locale]/layout.tsx')).toBe(true);
+        expect(isAppEntryLayoutFile('src/app/(marketing)/layout.jsx')).toBe(true);
+    });
+
+    test('returns false for deeper nested app layouts', () => {
+        expect(isAppEntryLayoutFile('app/[locale]/dashboard/layout.tsx')).toBe(false);
+        expect(isAppEntryLayoutFile('src/app/(marketing)/home/layout.tsx')).toBe(false);
+    });
+
+    test('returns false for non-app layout files', () => {
+        expect(isAppEntryLayoutFile('pages/layout.tsx')).toBe(false);
+        expect(isAppEntryLayoutFile('src/components/layout.tsx')).toBe(false);
+    });
+});
+
+describe('replaceDynamicRouteSegments', () => {
+    test('replaces app router dynamic segments with temporary values', () => {
+        expect(replaceDynamicRouteSegments('/de/orgs/[orgUID]/events/[eventId]/details')).toBe(
+            '/de/orgs/temp-orgUID/events/temp-eventId/details',
+        );
+    });
+
+    test('replaces catch-all dynamic segments with temporary values', () => {
+        expect(replaceDynamicRouteSegments('/de/docs/[...slug]')).toBe('/de/docs/temp-slug');
+    });
+
+    test('leaves static paths unchanged', () => {
+        expect(replaceDynamicRouteSegments('/de/admin/users')).toBe('/de/admin/users');
     });
 });

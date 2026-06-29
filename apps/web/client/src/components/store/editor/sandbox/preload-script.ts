@@ -5,6 +5,8 @@ import { getAstFromContent, getContentFromAst, injectPreloadScript } from '@onlo
 import { isRootLayoutFile, normalizePath } from '@onlook/utility';
 import path from 'path';
 
+const isTextLayoutFile = (fileName: string): boolean => /^layout\.(tsx|ts|jsx|js)$/.test(fileName);
+
 export async function copyPreloadScriptToPublic(provider: Provider, routerConfig: RouterConfig): Promise<void> {
     try {
         try {
@@ -33,16 +35,10 @@ export async function injectPreloadScriptIntoLayout(provider: Provider, routerCo
         throw new Error('Could not detect router type for script injection. This is required for iframe communication.');
     }
 
-    const result = await provider.listFiles({ args: { path: routerConfig.basePath } });
-    const [layoutFile] = result.files.filter(file =>
-        file.type === 'file' && isRootLayoutFile(`${routerConfig.basePath}/${file.name}`, routerConfig.type)
-    );
-
-    if (!layoutFile) {
+    const layoutPath = await findLayoutPath(provider, routerConfig);
+    if (!layoutPath) {
         throw new Error(`No layout files found in ${routerConfig.basePath}`);
     }
-
-    const layoutPath = `${routerConfig.basePath}/${layoutFile.name}`;
 
     const layoutResponse = await provider.readFile({ args: { path: layoutPath } });
     if (typeof layoutResponse.file.content !== 'string') {
@@ -65,6 +61,43 @@ export async function injectPreloadScriptIntoLayout(provider: Provider, routerCo
             overwrite: true
         }
     });
+}
+
+async function findLayoutPath(
+    provider: Provider,
+    routerConfig: RouterConfig,
+): Promise<string | null> {
+    const result = await provider.listFiles({ args: { path: routerConfig.basePath } });
+    const directLayout = result.files.find(
+        (file) =>
+            file.type === 'file' &&
+            isRootLayoutFile(`${routerConfig.basePath}/${file.name}`, routerConfig.type),
+    );
+
+    if (directLayout) {
+        return `${routerConfig.basePath}/${directLayout.name}`;
+    }
+
+    if (routerConfig.type !== RouterType.APP) {
+        return null;
+    }
+
+    for (const directory of result.files.filter((file) => file.type === 'directory')) {
+        const nestedPath = `${routerConfig.basePath}/${directory.name}`;
+        try {
+            const nestedResult = await provider.listFiles({ args: { path: nestedPath } });
+            const nestedLayout = nestedResult.files.find(
+                (file) => file.type === 'file' && isTextLayoutFile(file.name),
+            );
+            if (nestedLayout) {
+                return `${nestedPath}/${nestedLayout.name}`;
+            }
+        } catch {
+            continue;
+        }
+    }
+
+    return null;
 }
 
 export async function getLayoutPath(routerConfig: RouterConfig, fileExists: (path: string) => Promise<boolean>): Promise<string | null> {
