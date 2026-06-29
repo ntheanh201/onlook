@@ -206,13 +206,22 @@ export const ProjectCreationProvider = ({ children, totalSteps }: ProjectCreatio
 
             let routerType: RouterType = RouterType.PAGES;
 
-            const hasAppLayout = files.some((f) =>
-                isTargetFile(f.path, {
-                    fileName: 'layout',
-                    targetExtensions: NEXT_JS_FILE_EXTENSIONS,
-                    potentialPaths: ['app', 'src/app'],
-                }),
-            );
+            const hasAppLayout = files.some((f) => {
+                if (
+                    isTargetFile(f.path, {
+                        fileName: 'layout',
+                        targetExtensions: NEXT_JS_FILE_EXTENSIONS,
+                        potentialPaths: ['app', 'src/app'],
+                    })
+                ) {
+                    return true;
+                }
+
+                return (
+                    /^app\/.+\/layout\.(jsx|tsx|js|ts|mjs|cjs)$/.test(f.path) ||
+                    /^src\/app\/.+\/layout\.(jsx|tsx|js|ts|mjs|cjs)$/.test(f.path)
+                );
+            });
 
             if (hasAppLayout) {
                 routerType = RouterType.APP;
