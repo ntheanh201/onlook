@@ -1,4 +1,5 @@
 import { createClient as createTRPCClient } from '@/trpc/request-server';
+import { getAuthenticatedUser } from '@/utils/supabase/auth';
 import { createClient as createSupabaseClient } from '@/utils/supabase/request-server';
 import { UsageType, type Usage } from '@onlook/models';
 import { type NextRequest } from 'next/server';
@@ -36,7 +37,7 @@ export const checkMessageLimit = async (req: NextRequest): Promise<{
 
 export const getSupabaseUser = async (request: NextRequest) => {
     const supabase = await createSupabaseClient(request);
-    const { data: { user } } = await supabase.auth.getUser();
+    const { user } = await getAuthenticatedUser(supabase, request);
     return user;
 }
 

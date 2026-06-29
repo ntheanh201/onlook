@@ -2,6 +2,7 @@
 
 import { env } from '@/env';
 import { Routes } from '@/utils/constants';
+import { getAuthenticatedUser } from '@/utils/supabase/auth';
 import { createClient } from '@/utils/supabase/server';
 import { SEED_USER } from '@onlook/db';
 import { SignInMethod } from '@onlook/models';
@@ -12,10 +13,7 @@ export async function login(provider: SignInMethod.GITHUB | SignInMethod.GOOGLE)
 
     // If the cookie points at a deleted local Supabase user, getSession() still
     // returns a JWT. Validate it before deciding the user is already signed in.
-    const {
-        data: { user },
-        error: userError,
-    } = await supabase.auth.getUser();
+    const { user, error: userError } = await getAuthenticatedUser(supabase);
     if (user) {
         return Routes.AUTH_REDIRECT;
     }
@@ -45,7 +43,7 @@ export async function devLogin() {
     }
 
     const supabase = await createClient();
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const { user, error: userError } = await getAuthenticatedUser(supabase);
 
     if (user) {
         return Routes.AUTH_REDIRECT;

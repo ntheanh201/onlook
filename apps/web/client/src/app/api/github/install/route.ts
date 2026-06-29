@@ -1,4 +1,5 @@
 import { Routes } from '@/utils/constants';
+import { getAuthenticatedUser } from '@/utils/supabase/auth';
 import { createClient } from '@/utils/supabase/server';
 import { generateInstallationUrl } from '@onlook/github';
 import { NextResponse, type NextRequest } from 'next/server';
@@ -7,10 +8,7 @@ export async function GET(request: NextRequest) {
     const requestUrl = new URL(request.url);
     const origin = requestUrl.origin;
     const supabase = await createClient();
-    const {
-        data: { user },
-        error,
-    } = await supabase.auth.getUser();
+    const { user, error } = await getAuthenticatedUser(supabase, request);
 
     if (error || !user) {
         return NextResponse.redirect(

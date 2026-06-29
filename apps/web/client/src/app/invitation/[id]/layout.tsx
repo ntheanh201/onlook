@@ -1,3 +1,4 @@
+import { getAuthenticatedUser } from '@/utils/supabase/auth';
 import { createClient } from '@/utils/supabase/server';
 import { type Metadata } from 'next';
 import { HandleAuth } from './_components/auth';
@@ -9,9 +10,7 @@ export const metadata: Metadata = {
 
 export default async function Layout({ children }: Readonly<{ children: React.ReactNode }>) {
     const supabase = await createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
+    const { user } = await getAuthenticatedUser(supabase);
 
     if (!user) {
         return <HandleAuth />;

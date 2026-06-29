@@ -1,4 +1,5 @@
 import { Routes } from '@/utils/constants';
+import { getAuthenticatedUser } from '@/utils/supabase/auth';
 import { createClient } from '@/utils/supabase/server';
 import { getReturnUrlQueryParam } from '@/utils/url';
 import { type Metadata } from 'next';
@@ -12,9 +13,7 @@ export const metadata: Metadata = {
 
 export default async function Layout({ children }: Readonly<{ children: React.ReactNode }>) {
     const supabase = await createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
+    const { user } = await getAuthenticatedUser(supabase);
     if (!user) {
         const headersList = await headers();
         const pathname = headersList.get('x-pathname') || Routes.PROJECTS;
