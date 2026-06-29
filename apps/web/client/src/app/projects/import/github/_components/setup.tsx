@@ -155,6 +155,20 @@ export const SetupGithub = () => {
                             )}
                         </div>
 
+                        {(githubData.organizationsError || githubData.repositoriesError) && (
+                            <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+                                <Icons.ExclamationTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                                <div className="flex flex-col gap-1">
+                                    {githubData.organizationsError && (
+                                        <span>{githubData.organizationsError}</span>
+                                    )}
+                                    {githubData.repositoriesError && (
+                                        <span>{githubData.repositoriesError}</span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         <div className="flex flex-col gap-3">
                             <div className="flex items-center justify-between">
                                 <label className="text-sm font-medium text-foreground-primary">

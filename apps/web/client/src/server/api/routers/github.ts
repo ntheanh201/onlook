@@ -1,7 +1,9 @@
 import { users, type DrizzleDb } from '@onlook/db';
 import {
+    createInstallationAccessToken,
     createInstallationOctokit,
-    generateInstallationUrl
+    generateInstallationUrl,
+    githubApiRequest
 } from '@onlook/github';
 import { TRPCError } from '@trpc/server';
 import { eq } from 'drizzle-orm';
@@ -24,6 +26,44 @@ const getUserGitHubInstallation = async (db: DrizzleDb, userId: string) => {
         octokit: createInstallationOctokit(user.githubInstallationId),
         installationId: user.githubInstallationId
     };
+};
+
+type GitHubInstallationRepository = {
+    id: number;
+    name: string;
+    full_name: string;
+    description: string | null;
+    private: boolean;
+    default_branch: string;
+    clone_url: string;
+    html_url: string;
+    updated_at: string;
+    owner: {
+        login: string;
+        avatar_url: string;
+    };
+};
+
+const fetchInstallationRepositories = async (installationId: string) => {
+    const token = await createInstallationAccessToken(installationId);
+    const repositories: GitHubInstallationRepository[] = [];
+    const perPage = 100;
+
+    for (let page = 1; ; page++) {
+        const data = await githubApiRequest<{ repositories?: GitHubInstallationRepository[] }>(
+            `https://api.github.com/installation/repositories?per_page=${perPage}&page=${page}`,
+            {
+                token,
+            },
+        );
+
+        const pageRepositories = data.repositories ?? [];
+        repositories.push(...pageRepositories);
+
+        if (pageRepositories.length < perPage) {
+            return repositories;
+        }
+    }
 };
 
 export const githubRouter = createTRPCRouter({
@@ -81,6 +121,7 @@ export const githubRouter = createTRPCRouter({
                 // If installed on a user account, return empty (no organizations)
                 return [];
             } catch (error) {
+                console.error('Error fetching GitHub organizations:', error);
                 throw new TRPCError({
                     code: 'FORBIDDEN',
                     message: 'GitHub App installation is invalid or has been revoked',
@@ -149,16 +190,12 @@ export const githubRouter = createTRPCRouter({
         )
         .query(async ({ ctx }) => {
             try {
-                const { octokit, installationId } = await getUserGitHubInstallation(ctx.db, ctx.user.id);
+                const { installationId } = await getUserGitHubInstallation(ctx.db, ctx.user.id);
 
-                const { data } = await octokit.rest.apps.listReposAccessibleToInstallation({
-                    installation_id: parseInt(installationId, 10),
-                    per_page: 100,
-                    page: 1,
-                });
+                const repositories = await fetchInstallationRepositories(installationId);
 
                 // Transform to match reference implementation pattern
-                return data.repositories.map(repo => ({
+                return repositories.map(repo => ({
                     id: repo.id,
                     name: repo.name,
                     full_name: repo.full_name,
@@ -174,6 +211,7 @@ export const githubRouter = createTRPCRouter({
                     },
                 }));
             } catch (error) {
+                console.error('Error fetching GitHub repositories:', error);
                 throw new TRPCError({
                     code: 'FORBIDDEN',
                     message: 'GitHub App installation is invalid or has been revoked. Please reinstall the GitHub App.',
