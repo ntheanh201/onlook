@@ -1,4 +1,4 @@
-import { httpBatchStreamLink, loggerLink } from '@trpc/client';
+import { httpBatchLink, loggerLink } from '@trpc/client';
 import SuperJSON from 'superjson';
 
 export function getBaseUrl() {
@@ -13,7 +13,7 @@ export const links = [
             process.env.NODE_ENV === 'development' ||
             (op.direction === 'down' && op.result instanceof Error),
     }),
-    httpBatchStreamLink({
+    httpBatchLink({
         transformer: SuperJSON,
         url: getBaseUrl() + '/api/trpc',
         headers: () => {

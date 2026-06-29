@@ -14,7 +14,6 @@ export interface GitHubAppInstallation {
 }
 
 export const useGitHubAppInstallation: () => GitHubAppInstallation = () => {
-    const generateInstallationUrl = api.github.generateInstallationUrl.useMutation();
     const { data: installationId, refetch: checkInstallation, isFetching: isChecking } = api.github.checkGitHubAppInstallation.useQuery(undefined, {
         refetchOnWindowFocus: true,
         retry: false,
@@ -29,14 +28,11 @@ export const useGitHubAppInstallation: () => GitHubAppInstallation = () => {
     const redirectToInstallation = async (redirectUrl?: string) => {
         clearError();
         try {
-            const finalRedirectUrl = redirectUrl;
-            const result = await generateInstallationUrl.mutateAsync({
-                redirectUrl: finalRedirectUrl,
-            });
-
-            if (result?.url) {
-                window.open(result.url, '_blank');
+            const url = new URL('/api/github/install', window.location.origin);
+            if (redirectUrl) {
+                url.searchParams.set('redirectUrl', redirectUrl);
             }
+            window.location.assign(url.toString());
         } catch (error) {
             console.error('Error generating GitHub App installation URL:', error);
             setInstallError(error instanceof Error ? error.message : 'Failed to generate GitHub App installation URL');
