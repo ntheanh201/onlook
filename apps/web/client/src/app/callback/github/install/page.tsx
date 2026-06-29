@@ -58,8 +58,7 @@ export default function GitHubInstallCallbackPage() {
                     console.log('GitHub App installation completed:', data);
 
                     setTimeout(() => {
-                        // Close the tab since we are using a new tab
-                        window.close();
+                        router.replace(Routes.IMPORT_GITHUB);
                     }, 3000);
                 },
                 onError: (error) => {
@@ -165,7 +164,7 @@ export default function GitHubInstallCallbackPage() {
                                             indicatorIcon={Icons.CheckCircled}
                                             iconAnimated={true}
                                             title="All set!"
-                                            description="Your GitHub account is now connected"
+                                            description="Your GitHub App installation is connected. Returning to import."
                                         />
                                     )}
 
