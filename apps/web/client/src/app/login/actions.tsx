@@ -5,12 +5,10 @@ import { Routes } from '@/utils/constants';
 import { createClient } from '@/utils/supabase/server';
 import { SEED_USER } from '@onlook/db';
 import { SignInMethod } from '@onlook/models';
-import { headers } from 'next/headers';
 
 export async function login(provider: SignInMethod.GITHUB | SignInMethod.GOOGLE) {
     const supabase = await createClient();
-    const origin = (await headers()).get('origin') ?? env.NEXT_PUBLIC_SITE_URL;
-    const redirectTo = `${origin}${Routes.AUTH_CALLBACK}`;
+    const redirectTo = `${env.NEXT_PUBLIC_SITE_URL}${Routes.AUTH_CALLBACK}`;
 
     // If already session, redirect
     const {
