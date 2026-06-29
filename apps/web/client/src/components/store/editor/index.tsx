@@ -23,48 +23,48 @@ export const EditorEngineProvider = ({
     branches: Branch[],
 }) => {
     const posthog = usePostHog();
-    const currentProjectId = useRef(project.id);
     const engineRef = useRef<EditorEngine | null>(null);
+    const previewUpdatedAt = project.metadata?.previewImg?.updatedAt ?? null;
 
-    const [editorEngine, setEditorEngine] = useState(() => {
+    const [editorEngine, setEditorEngine] = useState<EditorEngine | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
         const engine = new EditorEngine(project.id, posthog);
-        engine.initBranches(branches);
-        engine.init();
-        engine.screenshot.lastScreenshotAt = project.metadata?.previewImg?.updatedAt ?? null;
-        engineRef.current = engine;
-        return engine;
-    });
 
-    // Initialize editor engine when project ID changes
-    useEffect(() => {
         const initializeEngine = async () => {
-            if (currentProjectId.current !== project.id) {
-                // Clean up old engine with delay to avoid race conditions
-                if (engineRef.current) {
-                    setTimeout(() => engineRef.current?.clear(), 0);
-                }
+            await engine.initBranches(branches);
+            await engine.init();
+            engine.screenshot.lastScreenshotAt = previewUpdatedAt;
 
-                // Create new engine for new project
-                const newEngine = new EditorEngine(project.id, posthog);
-                await newEngine.initBranches(branches);
-                await newEngine.init();
-                newEngine.screenshot.lastScreenshotAt = project.metadata?.previewImg?.updatedAt ?? null;
-
-                engineRef.current = newEngine;
-                setEditorEngine(newEngine);
-                currentProjectId.current = project.id;
+            if (cancelled) {
+                engine.clear();
+                return;
             }
+
+            engineRef.current = engine;
+            setEditorEngine(engine);
         };
 
-        initializeEngine();
-    }, [project.id]);
+        setEditorEngine(null);
+        void initializeEngine();
 
-    // Cleanup on unmount
-    useEffect(() => {
         return () => {
-            setTimeout(() => engineRef.current?.clear(), 0);
+            cancelled = true;
+            if (engineRef.current === engine) {
+                engineRef.current = null;
+            }
+            setTimeout(() => engine.clear(), 0);
         };
-    }, []);
+    }, [branches, posthog, project.id, previewUpdatedAt]);
+
+    if (!editorEngine) {
+        return (
+            <div className="h-screen w-screen flex items-center justify-center">
+                <div className="text-xl">Loading project...</div>
+            </div>
+        );
+    }
 
     return (
         <EditorEngineContext.Provider value={editorEngine}>

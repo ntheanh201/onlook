@@ -8,6 +8,7 @@
  */
 
 import { createAdminClient } from '@/utils/supabase/admin';
+import { getAuthenticatedUser } from '@/utils/supabase/auth';
 import { createClient } from '@/utils/supabase/server';
 import { db } from '@onlook/db/src/client';
 import type { User } from '@supabase/supabase-js';
@@ -30,13 +31,10 @@ import { ZodError } from 'zod';
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
     const supabase = await createClient();
-    const {
-        data: { user },
-        error,
-    } = await supabase.auth.getUser();
+    const { user, error } = await getAuthenticatedUser(supabase);
 
     if (error) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: error.message });
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: error });
     }
 
     return {
@@ -180,4 +178,3 @@ export const adminProcedure = t.procedure.use(timingMiddleware).use(({ ctx, next
         },
     });
 });
-
