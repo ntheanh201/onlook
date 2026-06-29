@@ -13,9 +13,10 @@ export const AuthRedirect = ({ children }: { children: React.ReactNode }) => {
     useEffect(() => {
         const getSession = async () => {
             const {
-                data: { session },
-            } = await supabase.auth.getSession();
-            if (!session) {
+                data: { user },
+            } = await supabase.auth.getUser();
+            if (!user) {
+                await supabase.auth.signOut({ scope: 'local' });
                 const pathname = window.location.pathname;
                 await localforage.setItem(LocalForageKeys.RETURN_URL, pathname);
                 router.push(Routes.LOGIN);

@@ -10,12 +10,17 @@ export async function login(provider: SignInMethod.GITHUB | SignInMethod.GOOGLE)
     const supabase = await createClient();
     const redirectTo = `${env.NEXT_PUBLIC_SITE_URL}${Routes.AUTH_CALLBACK}`;
 
-    // If already session, redirect
+    // If the cookie points at a deleted local Supabase user, getSession() still
+    // returns a JWT. Validate it before deciding the user is already signed in.
     const {
-        data: { session },
-    } = await supabase.auth.getSession();
-    if (session) {
+        data: { user },
+        error: userError,
+    } = await supabase.auth.getUser();
+    if (user) {
         return Routes.AUTH_REDIRECT;
+    }
+    if (userError) {
+        await supabase.auth.signOut({ scope: 'local' });
     }
 
     // Start OAuth flow
@@ -40,10 +45,13 @@ export async function devLogin() {
     }
 
     const supabase = await createClient();
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-    if (session) {
+    if (user) {
         return Routes.AUTH_REDIRECT;
+    }
+    if (userError) {
+        await supabase.auth.signOut({ scope: 'local' });
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({
