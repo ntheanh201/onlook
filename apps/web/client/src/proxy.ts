@@ -9,6 +9,10 @@ export async function proxy(request: NextRequest) {
         return NextResponse.redirect(url);
     }
 
+    if (request.nextUrl.pathname.startsWith('/api/trpc')) {
+        return NextResponse.next({ request });
+    }
+
     // update user's auth session
     return await updateSession(request);
 }
