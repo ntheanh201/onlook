@@ -6,6 +6,7 @@ import { observer } from 'mobx-react-lite';
 import { connect, WindowMessenger } from 'penpal';
 
 import type { Frame } from '@onlook/models';
+import { SystemTheme } from '@onlook/models/assets';
 import type {
     PenpalChildMethods,
     PenpalParentMethods,
@@ -24,31 +25,50 @@ export type IFrameView = HTMLIFrameElement & {
     isLoading: () => boolean;
 } & PromisifiedPendpalChildMethods;
 
-// Creates a proxy that provides safe fallback methods for any property access
 const createSafeFallbackMethods = (): PromisifiedPendpalChildMethods => {
-    return new Proxy({} as PromisifiedPendpalChildMethods, {
-        get(_target, prop: string | symbol) {
-            if (typeof prop === 'symbol') return undefined;
-
-            return async (..._args: any[]) => {
-                const method = String(prop);
-                if (
-                    method.startsWith('get') ||
-                    method.includes('capture') ||
-                    method.includes('build')
-                ) {
-                    return null;
-                }
-                if (method.includes('Count')) {
-                    return 0;
-                }
-                if (method.includes('Editable') || method.includes('supports')) {
-                    return false;
-                }
-                return undefined;
-            };
-        },
-    });
+    return {
+        processDom: async () => null,
+        getElementAtLoc: async () => null,
+        getElementByDomId: async () => null,
+        setFrameId: async () => undefined,
+        setBranchId: async () => undefined,
+        getElementIndex: async () => null,
+        getComputedStyleByDomId: async () => ({}),
+        updateElementInstance: async () => undefined,
+        getFirstOnlookElement: async () => null,
+        setElementType: async () => undefined,
+        getElementType: async () => null,
+        getParentElement: async () => null,
+        getChildrenCount: async () => 0,
+        getOffsetParent: async () => null,
+        getActionLocation: async () => null,
+        getActionElement: async () => null,
+        getInsertLocation: async () => null,
+        getRemoveAction: async () => null,
+        getTheme: async () => SystemTheme.SYSTEM,
+        setTheme: async () => false,
+        startDrag: async () => null,
+        drag: async () => undefined,
+        dragAbsolute: async () => undefined,
+        endDragAbsolute: async () => null,
+        endDrag: async () => null,
+        endAllDrag: async () => undefined,
+        startEditingText: async () => undefined,
+        editText: async () => undefined,
+        stopEditingText: async () => undefined,
+        updateStyle: async () => undefined,
+        insertElement: async () => null,
+        removeElement: async () => null,
+        moveElement: async () => null,
+        groupElements: async () => undefined,
+        ungroupElements: async () => undefined,
+        insertImage: async () => null,
+        removeImage: async () => null,
+        isChildTextEditable: async () => false,
+        handleBodyReady: async () => undefined,
+        captureScreenshot: async () => null,
+        buildLayerTree: async () => null,
+    } as unknown as PromisifiedPendpalChildMethods;
 };
 
 interface FrameViewProps extends IframeHTMLAttributes<HTMLIFrameElement> {
