@@ -18,31 +18,37 @@ export const suggestionsRouter = createTRPCRouter({
             })),
         }))
         .mutation(async ({ ctx, input }) => {
-            const { model, headers } = initModel({
-                provider: LLMProvider.OPENROUTER,
-                model: getSmallOpenRouterModel(),
-            });
-            const { object } = await generateObject({
-                model,
-                headers,
-                schema: ChatSuggestionsSchema,
-                messages: [
-                    {
-                        role: 'system',
-                        content: SUGGESTION_SYSTEM_PROMPT,
-                    },
-                    ...convertToModelMessages(input.messages.map((m) => ({
-                        role: m.role,
-                        parts: [{ type: 'text', text: m.content }],
-                    }))),
-                    {
-                        role: 'user',
-                        content: 'Based on our conversation, what should I work on next to improve this page? Provide 3 specific, actionable suggestions. These should be realistic and achievable. Return the suggestions as a JSON object. DO NOT include any other text.',
-                    },
-                ],
-                maxOutputTokens: 10000,
-            });
-            const suggestions = object.suggestions satisfies ChatSuggestion[];
+            let suggestions: ChatSuggestion[] = [];
+            try {
+                const { model, headers, maxRetries } = initModel({
+                    provider: LLMProvider.OPENROUTER,
+                    model: getSmallOpenRouterModel(),
+                });
+                const { object } = await generateObject({
+                    model,
+                    headers,
+                    maxRetries,
+                    schema: ChatSuggestionsSchema,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: SUGGESTION_SYSTEM_PROMPT,
+                        },
+                        ...convertToModelMessages(input.messages.map((m) => ({
+                            role: m.role,
+                            parts: [{ type: 'text', text: m.content }],
+                        }))),
+                        {
+                            role: 'user',
+                            content: 'Based on our conversation, what should I work on next to improve this page? Provide 3 specific, actionable suggestions. These should be realistic and achievable. Return the suggestions as a JSON object. DO NOT include any other text.',
+                        },
+                    ],
+                    maxOutputTokens: 1000,
+                });
+                suggestions = object.suggestions satisfies ChatSuggestion[];
+            } catch (error) {
+                console.warn('Error generating chat suggestions:', error);
+            }
             try {
                 await ctx.db.update(conversations).set({
                     suggestions,

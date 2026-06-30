@@ -25,6 +25,7 @@ export const createRootAgentStream = ({
     return streamText({
         providerOptions: modelConfig.providerOptions,
         messages: convertToStreamMessages(messages),
+        maxRetries: modelConfig.maxRetries,
         model: modelConfig.model,
         system: systemPrompt,
         tools: toolSet,
@@ -99,6 +100,7 @@ export const repairToolCall = async ({ toolCall, tools, error }: { toolCall: Too
 
     const { object: repairedArgs } = await generateObject({
         model,
+        maxRetries: 0,
         schema: tool.inputSchema,
         prompt: [
             `The model tried to call the tool "${toolCall.toolName}"` +

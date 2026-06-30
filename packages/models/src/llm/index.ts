@@ -14,6 +14,10 @@ export enum OPENROUTER_MODELS {
     QWEN_3_CODER_FREE = 'qwen/qwen3-coder:free',
     OPEN_AI_GPT_OSS_20B_FREE = 'openai/gpt-oss-20b:free',
     OPEN_AI_GPT_OSS_120B_FREE = 'openai/gpt-oss-120b:free',
+    COHERE_NORTH_MINI_CODE_FREE = 'cohere/north-mini-code:free',
+    POOLSIDE_LAGUNA_M_FREE = 'poolside/laguna-m.1:free',
+    NVIDIA_NEMOTRON_3_SUPER_FREE = 'nvidia/nemotron-3-super-120b-a12b:free',
+    GOOGLE_GEMMA_4_31B_FREE = 'google/gemma-4-31b-it:free',
     OPENROUTER_FREE = 'openrouter/free',
 }
 
@@ -33,6 +37,7 @@ export type ModelConfig = {
     providerOptions?: Record<string, any>;
     headers?: Record<string, string>;
     maxOutputTokens: number;
+    maxRetries?: number;
 };
 
 export const MODEL_MAX_TOKENS = {
@@ -44,5 +49,9 @@ export const MODEL_MAX_TOKENS = {
     [OPENROUTER_MODELS.QWEN_3_CODER_FREE]: 1048576,
     [OPENROUTER_MODELS.OPEN_AI_GPT_OSS_20B_FREE]: 131072,
     [OPENROUTER_MODELS.OPEN_AI_GPT_OSS_120B_FREE]: 131072,
+    [OPENROUTER_MODELS.COHERE_NORTH_MINI_CODE_FREE]: 256000,
+    [OPENROUTER_MODELS.POOLSIDE_LAGUNA_M_FREE]: 262144,
+    [OPENROUTER_MODELS.NVIDIA_NEMOTRON_3_SUPER_FREE]: 1000000,
+    [OPENROUTER_MODELS.GOOGLE_GEMMA_4_31B_FREE]: 262144,
     [OPENROUTER_MODELS.OPENROUTER_FREE]: 200000,
 } as const;

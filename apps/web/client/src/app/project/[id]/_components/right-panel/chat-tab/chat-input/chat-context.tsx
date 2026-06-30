@@ -18,7 +18,7 @@ import { useMemo } from 'react';
 
 export const ChatContextWindow = ({ usage }: { usage: LanguageModelUsage }) => {
     const showCost = false;
-    const maxTokens = MODEL_MAX_TOKENS[OPENROUTER_MODELS.OPENROUTER_FREE];
+    const maxTokens = MODEL_MAX_TOKENS[OPENROUTER_MODELS.COHERE_NORTH_MINI_CODE_FREE];
     const usedTokens = useMemo(() => {
         if (!usage) return 0;
         const input = usage.inputTokens ?? 0;

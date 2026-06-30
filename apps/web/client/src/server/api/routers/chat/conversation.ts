@@ -68,7 +68,7 @@ export const conversationRouter = createTRPCRouter({
             content: z.string(),
         }))
         .mutation(async ({ ctx, input }) => {
-            const { model, providerOptions, headers } = initModel({
+            const { model, providerOptions, headers, maxRetries } = initModel({
                 provider: LLMProvider.OPENROUTER,
                 model: getSmallOpenRouterModel(),
             });
@@ -77,6 +77,7 @@ export const conversationRouter = createTRPCRouter({
             const result = await generateText({
                 model,
                 headers,
+                maxRetries,
                 prompt: `Generate a concise and meaningful conversation title (2-4 words maximum) that reflects the main purpose or theme of the conversation based on user's creation prompt. Generate only the conversation title, nothing else. Keep it short and descriptive. User's creation prompt: <prompt>${input.content}</prompt>`,
                 providerOptions,
                 maxOutputTokens: 50,
@@ -92,8 +93,11 @@ export const conversationRouter = createTRPCRouter({
                 },
             });
 
-            const generatedName = result.text.trim();
-            if (generatedName && generatedName.length > 0 && generatedName.length <= MAX_NAME_LENGTH) {
+            const generatedName = result.text
+                .replace(/^["']|["']$/g, '')
+                .trim()
+                .slice(0, MAX_NAME_LENGTH);
+            if (generatedName) {
                 await ctx.db.update(conversations).set({
                     displayName: generatedName,
                 }).where(eq(conversations.id, input.conversationId));

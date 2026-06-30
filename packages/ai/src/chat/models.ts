@@ -20,13 +20,13 @@ function getOpenRouterModelFromEnv(
 export function getDefaultOpenRouterModel(): OPENROUTER_MODELS {
     return getOpenRouterModelFromEnv(
         'OPENROUTER_MODEL',
-        OPENROUTER_MODELS.OPENROUTER_FREE,
+        OPENROUTER_MODELS.COHERE_NORTH_MINI_CODE_FREE,
     );
 }
 
 export function getSmallOpenRouterModel(): OPENROUTER_MODELS {
     return getOpenRouterModelFromEnv(
         'OPENROUTER_SMALL_MODEL',
-        OPENROUTER_MODELS.OPENROUTER_FREE,
+        OPENROUTER_MODELS.COHERE_NORTH_MINI_CODE_FREE,
     );
 }

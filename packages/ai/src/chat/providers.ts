@@ -17,20 +17,23 @@ export function initModel({
     let providerOptions: Record<string, any> | undefined;
     let headers: Record<string, string> | undefined;
     let maxOutputTokens: number = MODEL_MAX_TOKENS[requestedModel];
+    let maxRetries: number | undefined;
 
     switch (requestedProvider) {
         case LLMProvider.OPENROUTER:
             model = getOpenRouterProvider(requestedModel);
+            maxRetries = 0;
             headers = {
                 'HTTP-Referer': 'https://onlook.com',
                 'X-Title': 'Onlook',
             };
-            providerOptions = {
-                openrouter: { transforms: ['middle-out'] },
-            };
+            providerOptions = {};
             const isAnthropic = requestedModel === OPENROUTER_MODELS.CLAUDE_4_5_SONNET || requestedModel === OPENROUTER_MODELS.CLAUDE_3_5_HAIKU;
             providerOptions = isAnthropic
-                ? { ...providerOptions, anthropic: { cacheControl: { type: 'ephemeral' } } }
+                ? {
+                    openrouter: { transforms: ['middle-out'] },
+                    anthropic: { cacheControl: { type: 'ephemeral' } },
+                }
                 : providerOptions;
             break;
         default:
@@ -42,6 +45,7 @@ export function initModel({
         providerOptions,
         headers,
         maxOutputTokens,
+        maxRetries,
     };
 }
 
