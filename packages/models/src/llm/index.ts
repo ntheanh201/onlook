@@ -11,6 +11,10 @@ export enum OPENROUTER_MODELS {
     OPEN_AI_GPT_5 = 'openai/gpt-5',
     OPEN_AI_GPT_5_MINI = 'openai/gpt-5-mini',
     OPEN_AI_GPT_5_NANO = 'openai/gpt-5-nano',
+    QWEN_3_CODER_FREE = 'qwen/qwen3-coder:free',
+    OPEN_AI_GPT_OSS_20B_FREE = 'openai/gpt-oss-20b:free',
+    OPEN_AI_GPT_OSS_120B_FREE = 'openai/gpt-oss-120b:free',
+    OPENROUTER_FREE = 'openrouter/free',
 }
 
 interface ModelMapping {
@@ -37,4 +41,8 @@ export const MODEL_MAX_TOKENS = {
     [OPENROUTER_MODELS.OPEN_AI_GPT_5_NANO]: 400000,
     [OPENROUTER_MODELS.OPEN_AI_GPT_5_MINI]: 400000,
     [OPENROUTER_MODELS.OPEN_AI_GPT_5]: 400000,
+    [OPENROUTER_MODELS.QWEN_3_CODER_FREE]: 1048576,
+    [OPENROUTER_MODELS.OPEN_AI_GPT_OSS_20B_FREE]: 131072,
+    [OPENROUTER_MODELS.OPEN_AI_GPT_OSS_120B_FREE]: 131072,
+    [OPENROUTER_MODELS.OPENROUTER_FREE]: 200000,
 } as const;
