@@ -170,20 +170,19 @@ async function createPlainTextFallbackResponse({
         provider: LLMProvider.OPENROUTER,
         model: getDefaultOpenRouterModel(),
     });
-    const result = await generateText({
+    const text = await generateFallbackText({
         model,
         headers,
         providerOptions,
         maxRetries,
-        messages: convertToStreamMessages(messages),
-        system: getFallbackSystemPrompt(chatType),
-        maxOutputTokens: 1000,
+        messages,
+        chatType,
     });
     const assistantMessage = {
         id,
         role: 'assistant',
         metadata,
-        parts: [{ type: 'text', text: result.text, state: 'done' }],
+        parts: [{ type: 'text', text, state: 'done' }],
     } satisfies ChatMessage;
     const finalMessages = [...messages, assistantMessage];
     const messagesToStore = finalMessages
@@ -202,7 +201,7 @@ async function createPlainTextFallbackResponse({
             writer.write({ type: 'start', messageId: id, messageMetadata: metadata });
             writer.write({ type: 'start-step' });
             writer.write({ type: 'text-start', id });
-            writer.write({ type: 'text-delta', id, delta: result.text });
+            writer.write({ type: 'text-delta', id, delta: text });
             writer.write({ type: 'text-end', id });
             writer.write({ type: 'finish-step' });
             writer.write({ type: 'finish', messageMetadata: metadata });
@@ -211,6 +210,59 @@ async function createPlainTextFallbackResponse({
     });
 
     return createUIMessageStreamResponse({ stream });
+}
+
+async function generateFallbackText({
+    model,
+    headers,
+    providerOptions,
+    maxRetries,
+    messages,
+    chatType,
+}: {
+    model: ReturnType<typeof initModel>['model'];
+    headers?: Record<string, string>;
+    providerOptions?: Record<string, any>;
+    maxRetries?: number;
+    messages: ChatMessage[];
+    chatType: ChatType;
+}) {
+    try {
+        const result = await generateText({
+            model,
+            headers,
+            providerOptions,
+            maxRetries,
+            messages: convertToStreamMessages(messages),
+            system: getFallbackSystemPrompt(chatType),
+            maxOutputTokens: 1000,
+        });
+        return result.text;
+    } catch (error) {
+        console.error('Error in OpenRouter fallback chat', error);
+        return getOpenRouterErrorMessage(error);
+    }
+}
+
+function getOpenRouterErrorMessage(error: unknown) {
+    const responseBody = typeof error === 'object' && error && 'responseBody' in error
+        ? (error as { responseBody?: unknown }).responseBody
+        : undefined;
+    if (typeof responseBody === 'string') {
+        try {
+            const parsed = JSON.parse(responseBody) as { error?: { message?: string } };
+            const message = parsed.error?.message;
+            if (message?.includes('free-models-per-day')) {
+                return `${message}. OpenRouter free models are exhausted for this key today. Add credits in OpenRouter, wait for the daily reset, or set OPENROUTER_MODEL to a paid model.`;
+            }
+            if (message) {
+                return message;
+            }
+        } catch {
+            return responseBody;
+        }
+    }
+    return error instanceof Error ? error.message : String(error);
 }
 
 function shouldUsePlainTextOpenRouterFallback() {
