@@ -28,23 +28,25 @@ export async function POST(req: NextRequest) {
                 headers: { 'Content-Type': 'application/json' }
             });
         }
-        const usageCheckResult = await checkMessageLimit(req);
-        if (usageCheckResult.exceeded) {
-            trackEvent({
-                distinctId: user.id,
-                event: 'message_limit_exceeded',
-                properties: {
+        if (!shouldUseSelfHostedChatProvider()) {
+            const usageCheckResult = await checkMessageLimit(req);
+            if (usageCheckResult.exceeded) {
+                trackEvent({
+                    distinctId: user.id,
+                    event: 'message_limit_exceeded',
+                    properties: {
+                        usage: usageCheckResult.usage,
+                    },
+                });
+                return new Response(JSON.stringify({
+                    error: 'Message limit exceeded. Please upgrade to a paid plan.',
+                    code: 402,
                     usage: usageCheckResult.usage,
-                },
-            });
-            return new Response(JSON.stringify({
-                error: 'Message limit exceeded. Please upgrade to a paid plan.',
-                code: 402,
-                usage: usageCheckResult.usage,
-            }), {
-                status: 402,
-                headers: { 'Content-Type': 'application/json' }
-            });
+                }), {
+                    status: 402,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
         }
 
         return streamResponse(req, user.id);
@@ -79,11 +81,12 @@ export const streamResponse = async (req: NextRequest, userId: string) => {
     try {
         const lastUserMessage = messages.findLast((message) => message.role === 'user');
         const traceId = lastUserMessage?.id ?? uuidv4();
+        const useSelfHostedChatProvider = shouldUseSelfHostedChatProvider();
 
-        if (chatType === ChatType.EDIT) {
+        if (chatType === ChatType.EDIT && !useSelfHostedChatProvider) {
             usageRecord = await incrementUsage(req, traceId);
         }
-        if (shouldUsePlainTextOpenRouterFallback()) {
+        if (useSelfHostedChatProvider) {
             return createPlainTextFallbackResponse({
                 messages,
                 conversationId,
@@ -166,15 +169,7 @@ async function createPlainTextFallbackResponse({
         finishReason: 'stop',
     } satisfies ChatMetadata;
 
-    const { model, providerOptions, headers, maxRetries } = initModel({
-        provider: LLMProvider.OPENROUTER,
-        model: getDefaultOpenRouterModel(),
-    });
     const text = await generateFallbackText({
-        model,
-        headers,
-        providerOptions,
-        maxRetries,
         messages,
         chatType,
     });
@@ -213,21 +208,22 @@ async function createPlainTextFallbackResponse({
 }
 
 async function generateFallbackText({
-    model,
-    headers,
-    providerOptions,
-    maxRetries,
     messages,
     chatType,
 }: {
-    model: ReturnType<typeof initModel>['model'];
-    headers?: Record<string, string>;
-    providerOptions?: Record<string, any>;
-    maxRetries?: number;
     messages: ChatMessage[];
     chatType: ChatType;
 }) {
+    const codexText = await generateCodexLocalText({ messages, chatType });
+    if (codexText) {
+        return codexText;
+    }
+
     try {
+        const { model, providerOptions, headers, maxRetries } = initModel({
+            provider: LLMProvider.OPENROUTER,
+            model: getDefaultOpenRouterModel(),
+        });
         const result = await generateText({
             model,
             headers,
@@ -263,6 +259,68 @@ function getOpenRouterErrorMessage(error: unknown) {
         }
     }
     return error instanceof Error ? error.message : String(error);
+}
+
+async function generateCodexLocalText({
+    messages,
+    chatType,
+}: {
+    messages: ChatMessage[];
+    chatType: ChatType;
+}) {
+    const bridgeUrl = process.env.CODEX_LOCAL_BRIDGE_URL;
+    if (!bridgeUrl) {
+        return null;
+    }
+
+    try {
+        const response = await fetch(new URL('/chat', bridgeUrl), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+                prompt: buildCodexPrompt({ messages, chatType }),
+            }),
+        });
+        const body = await response.json() as { text?: string; error?: string };
+        if (!response.ok) {
+            return `Local Codex bridge error: ${body.error ?? response.statusText}`;
+        }
+        return body.text?.trim() || 'Local Codex returned an empty response.';
+    } catch (error) {
+        console.error('Error calling local Codex bridge', error);
+        return `Local Codex bridge error: ${error instanceof Error ? error.message : String(error)}`;
+    }
+}
+
+function buildCodexPrompt({
+    messages,
+    chatType,
+}: {
+    messages: ChatMessage[];
+    chatType: ChatType;
+}) {
+    const transcript = messages
+        .map(message => {
+            const text = message.parts
+                .map(part => part.type === 'text' ? part.text : '')
+                .join('')
+                .trim();
+            return text ? `${message.role}: ${text}` : '';
+        })
+        .filter(Boolean)
+        .join('\n\n');
+
+    return [
+        `You are powering Onlook's ${chatType} chat mode for a local self-hosted project.`,
+        'Answer concisely and focus on practical Next.js/React UI work.',
+        'Do not modify files from this chat response. If code changes are needed, describe the exact files and changes.',
+        '',
+        transcript,
+    ].join('\n');
+}
+
+function shouldUseSelfHostedChatProvider() {
+    return Boolean(process.env.CODEX_LOCAL_BRIDGE_URL) || shouldUsePlainTextOpenRouterFallback();
 }
 
 function shouldUsePlainTextOpenRouterFallback() {

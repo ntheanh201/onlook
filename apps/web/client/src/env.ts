@@ -37,6 +37,7 @@ export const env = createEnv({
         OPENROUTER_API_KEY: z.string(),
         OPENROUTER_MODEL: z.string().optional(),
         OPENROUTER_SMALL_MODEL: z.string().optional(),
+        CODEX_LOCAL_BRIDGE_URL: z.string().url().optional(),
         ANTHROPIC_API_KEY: z.string().optional(),
         GOOGLE_AI_STUDIO_API_KEY: z.string().optional(),
         OPENAI_API_KEY: z.string().optional(),
@@ -136,6 +137,7 @@ export const env = createEnv({
         OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
         OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
         OPENROUTER_SMALL_MODEL: process.env.OPENROUTER_SMALL_MODEL,
+        CODEX_LOCAL_BRIDGE_URL: process.env.CODEX_LOCAL_BRIDGE_URL,
 
         // n8n
         N8N_WEBHOOK_URL: process.env.N8N_WEBHOOK_URL,
