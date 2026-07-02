@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import http from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const host = process.env.CODEX_LOCAL_BRIDGE_HOST || '127.0.0.1';
 const port = Number(process.env.CODEX_LOCAL_BRIDGE_PORT || 3987);
@@ -66,7 +69,10 @@ function readJson(req) {
 
 function runCodex(prompt) {
     return new Promise((resolve, reject) => {
-        const child = spawn(command, [...getCodexArgs(), prompt], {
+        // codex exec streams progress/logs to stdout; -o writes only the final
+        // agent message to this file, which we read back for clean output.
+        const outputFile = join(tmpdir(), `codex-bridge-${randomUUID()}.txt`);
+        const child = spawn(command, [...getCodexArgs(outputFile), prompt], {
             cwd: bridgeEnv.CODEX_LOCAL_WORKDIR || process.cwd(),
             env: bridgeEnv,
             stdio: ['ignore', 'pipe', 'pipe'],
@@ -76,6 +82,7 @@ function runCodex(prompt) {
         let stderr = '';
         const timer = setTimeout(() => {
             child.kill('SIGTERM');
+            cleanupFile(outputFile);
             reject(new Error(`Codex timed out after ${timeoutMs}ms`));
         }, timeoutMs);
 
@@ -85,6 +92,7 @@ function runCodex(prompt) {
         child.stderr.on('data', chunk => stderr += chunk);
         child.on('error', error => {
             clearTimeout(timer);
+            cleanupFile(outputFile);
             reject(error);
         });
         child.on('close', code => {
@@ -93,11 +101,24 @@ function runCodex(prompt) {
             const cleanStderr = stripAnsi(stderr).trim();
             const output = cleanStderr || cleanStdout || `Codex exited with code ${code}`;
             if (isCodexLoginOutput(output)) {
-                reject(new Error('Codex CLI is not authenticated for non-interactive use. Run Codex once in a real terminal with an API key, or set CODEX_LOCAL_COMMAND to a non-interactive Codex-compatible command.'));
+                cleanupFile(outputFile);
+                reject(new Error('Codex CLI is not authenticated for non-interactive use. Run `codex login` in a real terminal, or set CODEX_LOCAL_COMMAND to a non-interactive Codex-compatible command.'));
                 return;
             }
-            if (code === 0 && stdout.trim()) {
-                resolve({ text: stdout.trim() });
+
+            let finalMessage = '';
+            try {
+                if (existsSync(outputFile)) {
+                    finalMessage = stripAnsi(readFileSync(outputFile, 'utf8')).trim();
+                }
+            } catch {
+                // ignore read errors, fall back to stdout
+            }
+            cleanupFile(outputFile);
+
+            const text = finalMessage || cleanStdout;
+            if (code === 0 && text) {
+                resolve({ text });
                 return;
             }
             reject(new Error(output));
@@ -105,11 +126,23 @@ function runCodex(prompt) {
     });
 }
 
-function getCodexArgs() {
-    const args = ['-q'];
-    if (bridgeEnv.CODEX_LOCAL_PROVIDER) {
-        args.push('--provider', bridgeEnv.CODEX_LOCAL_PROVIDER);
+function cleanupFile(file) {
+    try {
+        rmSync(file, { force: true });
+    } catch {
+        // ignore
     }
+}
+
+function getCodexArgs(outputFile) {
+    // Non-interactive, read-only (chat must not modify files), machine-clean output
+    const args = [
+        'exec',
+        '--sandbox', 'read-only',
+        '--skip-git-repo-check',
+        '--color', 'never',
+        '-o', outputFile,
+    ];
     if (bridgeEnv.CODEX_LOCAL_MODEL) {
         args.push('--model', bridgeEnv.CODEX_LOCAL_MODEL);
     }

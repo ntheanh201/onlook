@@ -178,7 +178,7 @@ export class CodesandboxProvider extends Provider {
         branch: string;
     }): Promise<CreateProjectOutput> {
         const sdk = new CodeSandbox();
-        const TIMEOUT_MS = 30000;
+        const TIMEOUT_MS = 120000;
 
         const createPromise = sdk.sandboxes.create({
             source: 'git',

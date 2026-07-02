@@ -7,9 +7,56 @@ import {
     getStaticCodeProvider,
 } from '@onlook/code-provider';
 import { getSandboxPreviewUrl, SandboxTemplates, Templates } from '@onlook/constants';
+import { users, type DrizzleDb } from '@onlook/db';
+import { createInstallationAccessToken } from '@onlook/github';
 import { shortenUuid } from '@onlook/utility/src/id';
+import { eq } from 'drizzle-orm';
 
 import { createTRPCRouter, protectedProcedure } from '../../trpc';
+
+/**
+ * Augments a GitHub HTTPS clone URL with a short-lived GitHub App installation
+ * access token so CodeSandbox can clone private repositories. Falls back to the
+ * original URL (works for public repos) when no installation or token is available.
+ */
+async function buildAuthenticatedRepoUrl(
+    db: DrizzleDb,
+    userId: string,
+    repoUrl: string,
+): Promise<string> {
+    let parsed: URL;
+    try {
+        parsed = new URL(repoUrl);
+    } catch {
+        return repoUrl;
+    }
+
+    // Only GitHub HTTPS URLs without existing credentials can be augmented
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com') {
+        return repoUrl;
+    }
+    if (parsed.username || parsed.password) {
+        return repoUrl;
+    }
+
+    const user = await db.query.users.findFirst({
+        where: eq(users.id, userId),
+        columns: { githubInstallationId: true },
+    });
+    if (!user?.githubInstallationId) {
+        return repoUrl;
+    }
+
+    try {
+        const token = await createInstallationAccessToken(user.githubInstallationId);
+        parsed.username = 'x-access-token';
+        parsed.password = token;
+        return parsed.toString();
+    } catch (error) {
+        console.error('Failed to create installation token for repo clone:', error);
+        return repoUrl;
+    }
+}
 
 function getProvider({
     sandboxId,
@@ -186,10 +233,13 @@ export const sandboxRouter = createTRPCRouter({
                 branch: z.string(),
             }),
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
             const MAX_RETRY_ATTEMPTS = 3;
             const DEFAULT_PORT = 3000;
             let lastError: Error | null = null;
+
+            // Embed a GitHub App installation token so CodeSandbox can clone private repos
+            const repoUrl = await buildAuthenticatedRepoUrl(ctx.db, ctx.user.id, input.repoUrl);
 
             for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
                 try {
@@ -197,7 +247,7 @@ export const sandboxRouter = createTRPCRouter({
                         CodeProvider.CodeSandbox,
                     );
                     const sandbox = await CodesandboxProvider.createProjectFromGit({
-                        repoUrl: input.repoUrl,
+                        repoUrl,
                         branch: input.branch,
                     });
 
