@@ -5,6 +5,7 @@ import { Input } from '@onlook/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@onlook/ui/select';
 import { motion } from 'motion/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from '@/trpc/react';
 import { StepContent, StepFooter, StepHeader } from '../../steps';
 import { useImportGithubProject } from '../_context';
 
@@ -16,10 +17,22 @@ export const SetupGithub = () => {
         nextStep,
         selectedRepo,
         setSelectedRepo,
+        branch,
+        setBranch,
         githubData,
         repositoryImport,
         installation,
     } = useImportGithubProject();
+
+    const { data: branches, isLoading: isLoadingBranches } = api.github.listBranches.useQuery(
+        { owner: selectedRepo?.owner.login ?? '', repo: selectedRepo?.name ?? '' },
+        { enabled: !!selectedRepo, refetchOnWindowFocus: false, staleTime: 60_000 },
+    );
+
+    // Default the branch selection to the repo's default branch when a repo is picked.
+    useEffect(() => {
+        setBranch(selectedRepo?.default_branch ?? '');
+    }, [selectedRepo?.id]);
 
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearchExpanded, setIsSearchExpanded] = useState(false);
@@ -290,8 +303,30 @@ export const SetupGithub = () => {
                             </Card>
 
                             {selectedRepo && (
-                                <div className="text-sm text-foreground-secondary">
-                                    Selected: <span className="font-medium">{selectedRepo.full_name}</span>
+                                <div className="flex flex-col gap-2">
+                                    <div className="text-sm text-foreground-secondary">
+                                        Selected: <span className="font-medium">{selectedRepo.full_name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Icons.Branch className="w-4 h-4 text-foreground-secondary" />
+                                        <Select
+                                            value={branch}
+                                            onValueChange={setBranch}
+                                            disabled={isLoadingBranches}
+                                        >
+                                            <SelectTrigger className="w-full max-w-xs">
+                                                <SelectValue placeholder={isLoadingBranches ? 'Loading branches…' : 'Select a branch'} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {(branches ?? [selectedRepo.default_branch]).map((b) => (
+                                                    <SelectItem key={b} value={b}>
+                                                        {b}
+                                                        {b === selectedRepo.default_branch ? ' (default)' : ''}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
                             )}
                         </div>

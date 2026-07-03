@@ -177,7 +177,12 @@ export class CodesandboxProvider extends Provider {
         repoUrl: string;
         branch: string;
     }): Promise<CreateProjectOutput> {
-        const sdk = new CodeSandbox();
+        // Next.js patches the global fetch for its own instrumentation, which hangs the
+        // CodeSandbox SDK's HTTP requests inside a route/server action. Hand the SDK the
+        // original un-patched fetch (stashed by Next as `_nextOriginalFetch`) so it works.
+        const globalFetch = globalThis.fetch as typeof fetch & { _nextOriginalFetch?: typeof fetch };
+        const nativeFetch = globalFetch?._nextOriginalFetch ?? globalFetch;
+        const sdk = new CodeSandbox(undefined, { fetch: nativeFetch });
         const TIMEOUT_MS = 120000;
 
         const createPromise = sdk.sandboxes.create({

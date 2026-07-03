@@ -90,7 +90,7 @@ export const ImportGithubProjectProvider: React.FC<ImportGithubProjectProviderPr
         if (currentStep === 1) {
             setCurrentStep(2);
             if (selectedRepo) {
-                await repositoryImport.importRepository(selectedRepo);
+                await repositoryImport.importRepository(selectedRepo, branch || selectedRepo.default_branch);
             }
         } else if (currentStep < totalSteps - 1) {
             setCurrentStep((prev) => prev + 1);
@@ -106,11 +106,9 @@ export const ImportGithubProjectProvider: React.FC<ImportGithubProjectProviderPr
     };
 
     const validateRepository = async (owner: string, repo: string) => {
-        const result = await repositoryValidation.validateRepository(owner, repo);
-        if (result) {
-            setBranch(result.branch);
-        }
-        return result;
+        // Note: don't overwrite `branch` here — the branch picker (default on repo-select +
+        // user selection in the dropdown) owns it; validation would clobber the user's choice.
+        return repositoryValidation.validateRepository(owner, repo);
     };
 
     const clearErrors = () => {

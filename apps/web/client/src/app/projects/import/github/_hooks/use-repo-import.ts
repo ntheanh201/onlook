@@ -14,7 +14,7 @@ export const useRepositoryImport = () => {
 
     const { data: user } = api.user.get.useQuery();
 
-    const importRepository = async (selectedRepo: GitHubRepository) => {
+    const importRepository = async (selectedRepo: GitHubRepository, branch?: string) => {
         if (!user?.id) {
             setError('No user found');
             return;
@@ -31,7 +31,7 @@ export const useRepositoryImport = () => {
         try {
             const { sandboxId, previewUrl } = await clientApi.sandbox.createFromGitHub.mutate({
                 repoUrl: selectedRepo.clone_url,
-                branch: selectedRepo.default_branch,
+                branch: branch || selectedRepo.default_branch,
             });
 
             const project = await clientApi.project.create.mutate({

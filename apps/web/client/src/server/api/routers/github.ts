@@ -97,6 +97,24 @@ export const githubRouter = createTRPCRouter({
             });
             return data;
         }),
+    listBranches: protectedProcedure
+        .input(
+            z.object({
+                owner: z.string(),
+                repo: z.string()
+            }),
+        )
+        .query(async ({ input, ctx }) => {
+            // Use the raw token + githubApiRequest path (same as getRepositoriesWithApp), which
+            // works in the server runtime — octokit.rest.* calls fail silently here.
+            const { installationId } = await getUserGitHubInstallation(ctx.db, ctx.user.id);
+            const token = await createInstallationAccessToken(installationId);
+            const branches = await githubApiRequest<Array<{ name: string }>>(
+                `https://api.github.com/repos/${input.owner}/${input.repo}/branches?per_page=100`,
+                { token },
+            );
+            return branches.map((b) => b.name);
+        }),
 
     getOrganizations: protectedProcedure
         .query(async ({ ctx }) => {
