@@ -21,10 +21,12 @@ export class SandboxManager {
     readonly session: SessionManager;
     readonly gitManager: GitManager;
     private providerReactionDisposer?: () => void;
+    private fileChangeDisposer?: () => void;
     private sync: CodeProviderSync | null = null;
     preloadScriptState: PreloadScriptState = PreloadScriptState.NOT_INJECTED
     routerConfig: RouterConfig | null = null;
     isPreviewReady = false;
+    changeVersion = 0;
 
     constructor(
         private branch: Branch,
@@ -86,10 +88,18 @@ export class SandboxManager {
         });
 
         await this.sync.start();
+        this.watchLocalFileChanges();
         await this.ensurePreloadScriptExists();
         await this.fs.rebuildIndex();
         this.isPreviewReady = true;
         await this.sync.startWatching();
+    }
+
+    private watchLocalFileChanges(): void {
+        this.fileChangeDisposer?.();
+        this.fileChangeDisposer = this.fs.watchDirectory('/', () => {
+            this.changeVersion++;
+        });
     }
 
     private async ensurePreloadScriptExists(): Promise<void> {
@@ -143,7 +153,8 @@ export class SandboxManager {
 
     async writeFile(path: string, content: string | Uint8Array): Promise<void> {
         if (!this.fs) throw new Error('File system not initialized');
-        return this.fs.writeFile(path, content);
+        await this.fs.writeFile(path, content);
+        this.changeVersion++;
     }
 
     listAllFiles() {
@@ -178,17 +189,20 @@ export class SandboxManager {
 
     async deleteFile(path: string): Promise<void> {
         if (!this.fs) throw new Error('File system not initialized');
-        return this.fs.deleteFile(path);
+        await this.fs.deleteFile(path);
+        this.changeVersion++;
     }
 
     async deleteDirectory(path: string): Promise<void> {
         if (!this.fs) throw new Error('File system not initialized');
-        return this.fs.deleteDirectory(path);
+        await this.fs.deleteDirectory(path);
+        this.changeVersion++;
     }
 
     async rename(oldPath: string, newPath: string): Promise<void> {
         if (!this.fs) throw new Error('File system not initialized');
-        return this.fs.moveFile(oldPath, newPath);
+        await this.fs.moveFile(oldPath, newPath);
+        this.changeVersion++;
     }
 
     // Download the code as a zip
@@ -220,6 +234,9 @@ export class SandboxManager {
     clear() {
         this.providerReactionDisposer?.();
         this.providerReactionDisposer = undefined;
+        this.fileChangeDisposer?.();
+        this.fileChangeDisposer = undefined;
+        this.gitManager.clear();
         this.sync?.release();
         this.sync = null;
         this.preloadScriptState = PreloadScriptState.NOT_INJECTED

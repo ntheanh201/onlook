@@ -15,8 +15,10 @@ import type {
 import { PENPAL_PARENT_CHANNEL } from '@onlook/penpal';
 import { WebPreview, WebPreviewBody } from '@onlook/ui/ai-elements';
 import { cn } from '@onlook/ui/utils';
+import { replaceDynamicRouteSegments } from '@onlook/utility';
 
 import { useEditorEngine } from '@/components/store/editor';
+import { env } from '@/env';
 
 export type IFrameView = HTMLIFrameElement & {
     setZoomLevel: (level: number) => void;
@@ -81,6 +83,24 @@ interface FrameViewProps extends IframeHTMLAttributes<HTMLIFrameElement> {
     isInDragSelection?: boolean;
 }
 
+const getPreviewUrl = (frameUrl: string) => {
+    const previewBaseUrl = env.NEXT_PUBLIC_LOCAL_PREVIEW_URL;
+    if (!previewBaseUrl) {
+        return replaceDynamicRouteSegments(frameUrl);
+    }
+
+    try {
+        const originalUrl = new URL(replaceDynamicRouteSegments(frameUrl));
+        const previewUrl = new URL(previewBaseUrl);
+        previewUrl.pathname = originalUrl.pathname;
+        previewUrl.search = originalUrl.search;
+        previewUrl.hash = originalUrl.hash;
+        return previewUrl.toString();
+    } catch {
+        return previewBaseUrl;
+    }
+};
+
 export const FrameComponent = observer(
     forwardRef<IFrameView, FrameViewProps>(
         (
@@ -105,6 +125,7 @@ export const FrameComponent = observer(
             const [penpalChild, setPenpalChild] = useState<PenpalChildMethods | null>(null);
             const isSelected = editorEngine.frames.isSelected(frame.id);
             const isActiveBranch = editorEngine.branches.activeBranch.id === frame.branchId;
+            const previewUrl = getPreviewUrl(frame.url);
 
             const setupPenpalConnection = () => {
                 try {
@@ -329,10 +350,10 @@ export const FrameComponent = observer(
             }, []);
 
             useEffect(() => {
-                if (enabled && iframeRef.current?.contentWindow && !penpalChild) {
-                    setupPenpalConnection();
+                if (iframeRef.current && penpalChild) {
+                    editorEngine.frames.registerView(frame, iframeRef.current as IFrameView);
                 }
-            }, [enabled, penpalChild]);
+            }, [editorEngine.frames, frame, penpalChild]);
 
             return (
                 <WebPreview>
@@ -345,7 +366,7 @@ export const FrameComponent = observer(
                             isActiveBranch && !isSelected && 'outline-dashed',
                             !isActiveBranch && isInDragSelection && 'outline-teal-500',
                         )}
-                        src={frame.url}
+                        src={previewUrl}
                         sandbox="allow-modals allow-forms allow-same-origin allow-scripts allow-popups allow-downloads"
                         allow="geolocation; microphone; camera; midi; encrypted-media"
                         style={{ width: frame.dimension.width, height: frame.dimension.height }}

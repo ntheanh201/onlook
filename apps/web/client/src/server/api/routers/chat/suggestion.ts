@@ -1,7 +1,6 @@
-import { getSmallOpenRouterModel, initModel, SUGGESTION_SYSTEM_PROMPT } from '@onlook/ai';
+import { getSmallModelPayload, initModel, SUGGESTION_SYSTEM_PROMPT } from '@onlook/ai';
 import { conversations } from '@onlook/db';
 import type { ChatSuggestion } from '@onlook/models';
-import { LLMProvider } from '@onlook/models';
 import { ChatSuggestionsSchema } from '@onlook/models/chat';
 import { convertToModelMessages, generateObject } from 'ai';
 import { eq } from 'drizzle-orm';
@@ -20,10 +19,7 @@ export const suggestionsRouter = createTRPCRouter({
         .mutation(async ({ ctx, input }) => {
             let suggestions: ChatSuggestion[] = [];
             try {
-                const { model, headers, maxRetries } = initModel({
-                    provider: LLMProvider.OPENROUTER,
-                    model: getSmallOpenRouterModel(),
-                });
+                const { model, headers, maxRetries } = initModel(getSmallModelPayload());
                 const { object } = await generateObject({
                     model,
                     headers,

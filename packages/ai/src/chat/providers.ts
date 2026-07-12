@@ -16,7 +16,7 @@ export function initModel({
     let model: LanguageModel;
     let providerOptions: Record<string, any> | undefined;
     let headers: Record<string, string> | undefined;
-    let maxOutputTokens: number = MODEL_MAX_TOKENS[requestedModel];
+    let maxOutputTokens: number = getMaxOutputTokens(requestedProvider, requestedModel);
     let maxRetries: number | undefined;
 
     switch (requestedProvider) {
@@ -35,6 +35,11 @@ export function initModel({
                     anthropic: { cacheControl: { type: 'ephemeral' } },
                 }
                 : providerOptions;
+            break;
+        case LLMProvider.OPENAI_COMPATIBLE:
+            model = getOpenAICompatibleProvider(requestedModel);
+            maxRetries = 0;
+            providerOptions = {};
             break;
         default:
             assertNever(requestedProvider);
@@ -56,4 +61,27 @@ function getOpenRouterProvider(model: OPENROUTER_MODELS): LanguageModel {
     }
     const openrouter = createOpenRouter({ apiKey });
     return openrouter(model);
+}
+
+function getOpenAICompatibleProvider(model: string): LanguageModel {
+    const baseURL = process.env.OPENAI_COMPATIBLE_BASE_URL;
+    if (!baseURL) {
+        throw new Error('OPENAI_COMPATIBLE_BASE_URL must be set to use an OpenAI-compatible provider');
+    }
+
+    const openaiCompatible = createOpenRouter({
+        apiKey: process.env.OPENAI_COMPATIBLE_API_KEY ?? 'local',
+        baseURL,
+        compatibility: 'compatible',
+    });
+    return openaiCompatible.chat(model);
+}
+
+function getMaxOutputTokens(provider: LLMProvider, model: OPENROUTER_MODELS | string): number {
+    if (provider === LLMProvider.OPENROUTER) {
+        return MODEL_MAX_TOKENS[model as OPENROUTER_MODELS];
+    }
+
+    const value = Number(process.env.OPENAI_COMPATIBLE_MAX_OUTPUT_TOKENS ?? 8192);
+    return Number.isFinite(value) && value > 0 ? value : 8192;
 }

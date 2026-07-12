@@ -52,13 +52,24 @@ const DEFAULT_EXCLUDED_FILE_EXTENSIONS = new Set([
     '.tsbuildinfo',
     '.webp',
 ]);
+const DEFAULT_EXCLUDED_FILE_NAMES = new Set(['.ds_store', 'thumbs.db']);
 
 export async function hashContent(content: string | Uint8Array): Promise<string> {
     const encoder = new TextEncoder();
     const data = typeof content === 'string' ? encoder.encode(content) : new Uint8Array(content);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+
+    if (globalThis.crypto?.subtle) {
+        const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    let hash = 0x811c9dc5;
+    for (const byte of data) {
+        hash ^= byte;
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash.toString(16).padStart(8, '0');
 }
 
 async function mapWithConcurrency<T, R>(
@@ -436,6 +447,10 @@ export class CodeProviderSync {
         }
 
         const fileName = lowerPath.split('/').pop() ?? lowerPath;
+        if (DEFAULT_EXCLUDED_FILE_NAMES.has(fileName)) {
+            return false;
+        }
+
         const dotIndex = fileName.lastIndexOf('.');
         if (dotIndex > 0) {
             const extension = fileName.slice(dotIndex);

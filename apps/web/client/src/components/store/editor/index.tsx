@@ -23,47 +23,52 @@ export const EditorEngineProvider = ({
     branches: Branch[],
 }) => {
     const posthog = usePostHog();
+    const currentProjectId = useRef(project.id);
     const engineRef = useRef<EditorEngine | null>(null);
-    const previewUpdatedAt = project.metadata?.previewImg?.updatedAt ?? null;
 
     const [editorEngine, setEditorEngine] = useState<EditorEngine | null>(null);
 
+    // Initialize editor engine in the browser because branch setup uses IndexedDB.
     useEffect(() => {
         let cancelled = false;
-        const engine = new EditorEngine(project.id, posthog);
 
         const initializeEngine = async () => {
-            await engine.initBranches(branches);
-            await engine.init();
-            engine.screenshot.lastScreenshotAt = previewUpdatedAt;
+            if (engineRef.current) {
+                const engine = engineRef.current;
+                setTimeout(() => engine.clear(), 0);
+            }
+
+            const newEngine = new EditorEngine(project.id, posthog);
+            await newEngine.initBranches(branches);
+            await newEngine.init();
+            newEngine.screenshot.lastScreenshotAt = project.metadata?.previewImg?.updatedAt ?? null;
 
             if (cancelled) {
-                engine.clear();
+                newEngine.clear();
                 return;
             }
 
-            engineRef.current = engine;
-            setEditorEngine(engine);
+            engineRef.current = newEngine;
+            setEditorEngine(newEngine);
+            currentProjectId.current = project.id;
         };
 
-        setEditorEngine(null);
         void initializeEngine();
 
         return () => {
             cancelled = true;
-            if (engineRef.current === engine) {
-                engineRef.current = null;
-            }
-            setTimeout(() => engine.clear(), 0);
         };
-    }, [branches, posthog, project.id, previewUpdatedAt]);
+    }, [project.id, branches, posthog, project.metadata?.previewImg?.updatedAt]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            setTimeout(() => engineRef.current?.clear(), 0);
+        };
+    }, []);
 
     if (!editorEngine) {
-        return (
-            <div className="h-screen w-screen flex items-center justify-center">
-                <div className="text-xl">Loading project...</div>
-            </div>
-        );
+        return null;
     }
 
     return (

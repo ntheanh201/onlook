@@ -2,6 +2,7 @@ import type { LanguageModel } from 'ai';
 
 export enum LLMProvider {
     OPENROUTER = 'openrouter',
+    OPENAI_COMPATIBLE = 'openai-compatible',
 }
 
 export enum OPENROUTER_MODELS {
@@ -23,6 +24,7 @@ export enum OPENROUTER_MODELS {
 
 interface ModelMapping {
     [LLMProvider.OPENROUTER]: OPENROUTER_MODELS;
+    [LLMProvider.OPENAI_COMPATIBLE]: string;
 }
 
 export type InitialModelPayload = {

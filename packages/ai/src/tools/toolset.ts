@@ -67,7 +67,18 @@ export function getToolClassesFromType(chatType: ChatType) {
 }
 
 export function getToolSetFromType(chatType: ChatType) {
-    return chatType === ChatType.ASK ? readOnlyToolset : allToolset;
+    if (chatType === ChatType.ASK) {
+        return readOnlyToolset;
+    }
+    // fuzzy_edit_file relies on an external apply model (Morph/Relace). When neither
+    // key is configured (e.g. self-hosted), that tool always throws, so drop it and
+    // let the agent use search/replace or write_file instead.
+    const hasApplyModel = Boolean(process.env.MORPH_API_KEY || process.env.RELACE_API_KEY);
+    if (hasApplyModel) {
+        return allToolset;
+    }
+    const { [FuzzyEditFileTool.toolName]: _omitted, ...editToolsetWithoutFuzzy } = allToolset;
+    return editToolsetWithoutFuzzy as ToolSet;
 }
 
 export type ChatTools = InferUITools<typeof allToolset>;

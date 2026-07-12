@@ -1,4 +1,5 @@
 import { useEditorEngine } from '@/components/store/editor';
+import { env } from '@/env';
 import type { Frame } from '@onlook/models';
 import { Button } from '@onlook/ui/button';
 import { Icons } from '@onlook/ui/icons';
@@ -12,6 +13,24 @@ import { BranchDisplay } from './branch';
 import { createMouseMoveHandler } from './helpers';
 import { PageSelector } from './page-selector';
 
+const getPreviewUrl = (frameUrl: string) => {
+    const previewBaseUrl = env.NEXT_PUBLIC_LOCAL_PREVIEW_URL;
+    if (!previewBaseUrl) {
+        return replaceDynamicRouteSegments(frameUrl);
+    }
+
+    try {
+        const originalUrl = new URL(replaceDynamicRouteSegments(frameUrl));
+        const previewUrl = new URL(previewBaseUrl);
+        previewUrl.pathname = originalUrl.pathname;
+        previewUrl.search = originalUrl.search;
+        previewUrl.hash = originalUrl.hash;
+        return previewUrl.toString();
+    } catch {
+        return previewBaseUrl;
+    }
+};
+
 export const TopBar = observer(
     ({ frame, isInDragSelection = false }: { frame: Frame; isInDragSelection?: boolean }) => {
         const editorEngine = useEditorEngine();
@@ -20,6 +39,7 @@ export const TopBar = observer(
         const toolBarRef = useRef<HTMLDivElement>(null);
         const [shouldShowExternalLink, setShouldShowExternalLink] = useState(true);
         const mouseDownRef = useRef<{ x: number; y: number; time: number } | null>(null);
+        const previewUrl = getPreviewUrl(frame.url);
 
         useEffect(() => {
             const calculateVisibility = () => {
@@ -207,7 +227,7 @@ export const TopBar = observer(
                         className={cn(
                             'absolute right-1 top-1/2 -translate-y-1/2 transition-opacity duration-300',
                         )}
-                        href={replaceDynamicRouteSegments(frame.url)}
+                        href={previewUrl}
                         target="_blank"
                         style={{
                             transform: `scale(${1 / editorEngine.canvas.scale})`,

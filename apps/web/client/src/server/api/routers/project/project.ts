@@ -2,7 +2,7 @@ import { env } from '@/env';
 import { createTRPCRouter, protectedProcedure } from '@/server/api/trpc';
 import { trackEvent } from '@/utils/analytics/server';
 import FirecrawlApp from '@mendable/firecrawl-js';
-import { getSmallOpenRouterModel, initModel } from '@onlook/ai';
+import { getSmallModelPayload, initModel } from '@onlook/ai';
 import { getSandboxPreviewUrl, STORAGE_BUCKETS } from '@onlook/constants';
 import {
     branches,
@@ -30,7 +30,7 @@ import {
     type UserCanvas
 } from '@onlook/db';
 import { compressImageServer } from '@onlook/image-server';
-import { LLMProvider, ProjectCreateRequestStatus, ProjectRole } from '@onlook/models';
+import { ProjectCreateRequestStatus, ProjectRole } from '@onlook/models';
 import { getScreenshotPath } from '@onlook/utility';
 import { generateText } from 'ai';
 import { and, eq, ne } from 'drizzle-orm';
@@ -315,10 +315,7 @@ export const projectRouter = createTRPCRouter({
         }))
         .mutation(async ({ ctx, input }): Promise<string> => {
             try {
-                const { model, providerOptions, headers, maxRetries } = initModel({
-                    provider: LLMProvider.OPENROUTER,
-                    model: getSmallOpenRouterModel(),
-                });
+                const { model, providerOptions, headers, maxRetries } = initModel(getSmallModelPayload());
 
                 const MAX_NAME_LENGTH = 50;
                 const result = await generateText({

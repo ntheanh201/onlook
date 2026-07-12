@@ -299,6 +299,7 @@
                     },
                     "brand": "브랜드",
                     "branches": "브랜치",
+                    "sourceControl": "Source Control",
                     "apps": "앱"
                 }
             }

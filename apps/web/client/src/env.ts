@@ -34,10 +34,14 @@ export const env = createEnv({
         GOOGLE_PRIVATE_KEY_ID: z.string().optional(),
 
         // Model providers
-        OPENROUTER_API_KEY: z.string(),
+        OPENROUTER_API_KEY: z.string().optional(),
         OPENROUTER_MODEL: z.string().optional(),
         OPENROUTER_SMALL_MODEL: z.string().optional(),
-        CODEX_LOCAL_BRIDGE_URL: z.string().url().optional(),
+        OPENAI_COMPATIBLE_BASE_URL: z.string().url().optional(),
+        OPENAI_COMPATIBLE_API_KEY: z.string().optional(),
+        OPENAI_COMPATIBLE_MODEL: z.string().optional(),
+        OPENAI_COMPATIBLE_SMALL_MODEL: z.string().optional(),
+        OPENAI_COMPATIBLE_MAX_OUTPUT_TOKENS: z.coerce.number().optional(),
         ANTHROPIC_API_KEY: z.string().optional(),
         GOOGLE_AI_STUDIO_API_KEY: z.string().optional(),
         OPENAI_API_KEY: z.string().optional(),
@@ -79,6 +83,8 @@ export const env = createEnv({
         NEXT_PUBLIC_GLEAP_API_KEY: z.string().optional(),
         NEXT_PUBLIC_FEATURE_COLLABORATION: z.coerce.boolean().default(false),
         NEXT_PUBLIC_HOSTING_DOMAIN: z.string().optional(),
+        NEXT_PUBLIC_LOCAL_PREVIEW_ONLY: z.coerce.boolean().default(false),
+        NEXT_PUBLIC_LOCAL_PREVIEW_URL: z.string().url().optional(),
         NEXT_PUBLIC_RB2B_ID: z.string().optional(),
     },
 
@@ -99,6 +105,8 @@ export const env = createEnv({
         NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
         NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
         NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        NEXT_PUBLIC_LOCAL_PREVIEW_ONLY: process.env.NEXT_PUBLIC_LOCAL_PREVIEW_ONLY,
+        NEXT_PUBLIC_LOCAL_PREVIEW_URL: process.env.NEXT_PUBLIC_LOCAL_PREVIEW_URL,
 
         // Posthog
         NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
@@ -137,7 +145,11 @@ export const env = createEnv({
         OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
         OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
         OPENROUTER_SMALL_MODEL: process.env.OPENROUTER_SMALL_MODEL,
-        CODEX_LOCAL_BRIDGE_URL: process.env.CODEX_LOCAL_BRIDGE_URL,
+        OPENAI_COMPATIBLE_BASE_URL: process.env.OPENAI_COMPATIBLE_BASE_URL,
+        OPENAI_COMPATIBLE_API_KEY: process.env.OPENAI_COMPATIBLE_API_KEY,
+        OPENAI_COMPATIBLE_MODEL: process.env.OPENAI_COMPATIBLE_MODEL,
+        OPENAI_COMPATIBLE_SMALL_MODEL: process.env.OPENAI_COMPATIBLE_SMALL_MODEL,
+        OPENAI_COMPATIBLE_MAX_OUTPUT_TOKENS: process.env.OPENAI_COMPATIBLE_MAX_OUTPUT_TOKENS,
 
         // n8n
         N8N_WEBHOOK_URL: process.env.N8N_WEBHOOK_URL,

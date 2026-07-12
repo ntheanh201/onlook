@@ -12,6 +12,7 @@ import { isTargetFile } from '@onlook/utility';
 
 import type { NextJsProjectValidation, ProcessedFile } from '@/app/projects/types';
 import { ProcessedFileType } from '@/app/projects/types';
+import { env } from '@/env';
 import { api } from '@/trpc/react';
 import { Routes } from '@/utils/constants';
 
@@ -87,6 +88,25 @@ interface ProjectCreationProviderProps {
     totalSteps: number;
 }
 
+interface LocalPreviewImportResponse {
+    ok: boolean;
+    fileCount: number;
+    previewUrl?: string;
+}
+
+const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000;
+    let binary = '';
+
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+        const chunk = bytes.subarray(index, index + chunkSize);
+        binary += String.fromCharCode(...chunk);
+    }
+
+    return btoa(binary);
+};
+
 export const ProjectCreationProvider = ({ children, totalSteps }: ProjectCreationProviderProps) => {
     const router = useRouter();
     const [currentStep, setCurrentStep] = useState(0);
@@ -102,6 +122,29 @@ export const ProjectCreationProvider = ({ children, totalSteps }: ProjectCreatio
     const { mutateAsync: createProject } = api.project.create.useMutation();
     const { mutateAsync: forkSandbox } = api.sandbox.fork.useMutation();
     const { mutateAsync: startSandbox } = api.sandbox.start.useMutation();
+
+    const localPreviewImport = async (files: ProcessedFile[]) => {
+        const response = await fetch('/api/local-preview/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                files: files.map((file) => ({
+                    path: file.path,
+                    type: file.type,
+                    content:
+                        file.type === ProcessedFileType.BINARY
+                            ? arrayBufferToBase64(file.content)
+                            : file.content,
+                })),
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        return response.json() as Promise<LocalPreviewImportResponse>;
+    };
 
     const setProjectData = (newData: Partial<Project>) => {
         setProjectDataState((prevData) => ({ ...prevData, ...newData }));
@@ -122,6 +165,30 @@ export const ProjectCreationProvider = ({ children, totalSteps }: ProjectCreatio
             const packageJsonFile = projectData.files.find(
                 (f) => f.path.endsWith('package.json') && f.type === ProcessedFileType.TEXT,
             );
+
+            if (env.NEXT_PUBLIC_LOCAL_PREVIEW_ONLY) {
+                const localPreview = await localPreviewImport(projectData.files);
+                const project = await createProject({
+                    project: {
+                        name: projectData.name ?? 'New project',
+                        description: 'Your new project',
+                    },
+                    sandboxId: `local-preview-${Date.now()}`,
+                    sandboxUrl:
+                        localPreview.previewUrl ??
+                        env.NEXT_PUBLIC_LOCAL_PREVIEW_URL ??
+                        window.location.origin,
+                    userId: user.id,
+                });
+
+                if (!project) {
+                    console.error('Failed to create local preview project');
+                    return;
+                }
+
+                router.push(`${Routes.PROJECT}/${project.id}`);
+                return;
+            }
 
             const template = SandboxTemplates[Templates.BLANK];
             const forkedSandbox = await forkSandbox({

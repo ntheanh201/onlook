@@ -299,6 +299,7 @@
                     },
                     "brand": "Marca",
                     "branches": "Ramas",
+                    "sourceControl": "Source Control",
                     "apps": "Aplicaciones"
                 }
             }

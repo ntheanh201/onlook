@@ -21,7 +21,6 @@
         "build": "bun --filter @onlook/web build:client",
         "start": "bun --filter @onlook/web start:client",
         "dev": "bun --filter @onlook/web dev",
-        "codex:bridge": "node scripts/codex-local-bridge.mjs",
         "test": "bun --filter '*' test",
         "docs": "bun --filter @onlook/docs dev",
         "dev:admin": "bun --filter @onlook/admin dev",

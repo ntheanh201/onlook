@@ -1,11 +1,10 @@
-import { getSmallOpenRouterModel, initModel } from '@onlook/ai';
+import { getSmallModelPayload, initModel } from '@onlook/ai';
 import {
     conversationInsertSchema,
     conversations,
     conversationUpdateSchema,
     fromDbConversation
 } from '@onlook/db';
-import { LLMProvider } from '@onlook/models';
 import { generateText } from 'ai';
 import { eq } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
@@ -68,10 +67,7 @@ export const conversationRouter = createTRPCRouter({
             content: z.string(),
         }))
         .mutation(async ({ ctx, input }) => {
-            const { model, providerOptions, headers, maxRetries } = initModel({
-                provider: LLMProvider.OPENROUTER,
-                model: getSmallOpenRouterModel(),
-            });
+            const { model, providerOptions, headers, maxRetries } = initModel(getSmallModelPayload());
 
             const MAX_NAME_LENGTH = 50;
             const result = await generateText({

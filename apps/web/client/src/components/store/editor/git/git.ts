@@ -1,11 +1,16 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, reaction } from 'mobx';
 import stripAnsi from 'strip-ansi';
 
 import { SUPPORT_EMAIL } from '@onlook/constants';
 import { type GitCommit } from '@onlook/git';
 
 import type { SandboxManager } from '../sandbox';
-import { prepareCommitMessage, sanitizeCommitMessage, withSyncPaused } from '@/utils/git';
+import {
+    escapeShellString,
+    prepareCommitMessage,
+    sanitizeCommitMessage,
+    withSyncPaused,
+} from '@/utils/git';
 
 export const ONLOOK_DISPLAY_NAME_NOTE_REF = 'refs/notes/onlook-display-name';
 
@@ -19,9 +24,20 @@ export interface GitCommandResult {
     error: string | null;
 }
 
+export interface GitFileStatus {
+    path: string;
+    index: string;
+    worktree: string;
+    staged: boolean;
+    untracked: boolean;
+}
+
 export class GitManager {
     commits: GitCommit[] | null = null;
     isLoadingCommits = false;
+    detailedStatus: GitFileStatus[] = [];
+    isLoadingStatus = false;
+    private statusReactionDisposer?: () => void;
 
     constructor(private sandbox: SandboxManager) {
         makeAutoObservable(this);
@@ -35,7 +51,9 @@ export class GitManager {
         if (!isInitialized) {
             await this.initRepo();
         }
+        this.watchFileChanges();
         await this.listCommits();
+        await this.getDetailedStatus();
     }
 
     /**
@@ -148,7 +166,7 @@ export class GitManager {
             }
 
             return {
-                files: Object.keys(status.changedFiles || {}),
+                files: status.changedFiles || [],
             };
         } catch (error) {
             console.error('Failed to get git status:', error);
@@ -195,6 +213,91 @@ export class GitManager {
 
         // Create the commit
         return await this.commit(message);
+    }
+
+    async getDetailedStatus(): Promise<GitFileStatus[]> {
+        this.isLoadingStatus = true;
+        try {
+            const result = await this.runCommand('git status --porcelain=v1 -z -uall', true);
+            if (!result.success) {
+                this.detailedStatus = [];
+                return [];
+            }
+
+            const status = parseGitPorcelainStatus(result.output);
+            this.detailedStatus = status;
+            return status;
+        } catch (error) {
+            console.error('Failed to get detailed git status:', error);
+            this.detailedStatus = [];
+            return [];
+        } finally {
+            this.isLoadingStatus = false;
+        }
+    }
+
+    async getCurrentBranch(): Promise<string> {
+        const result = await this.runCommand('git symbolic-ref --short HEAD', true);
+        const branch = result.output.trim();
+        return branch && !branch.includes('fatal:') ? branch : 'main';
+    }
+
+    async stageFile(path: string): Promise<GitCommandResult> {
+        const result = await this.runCommand(`git add -- ${escapeShellString(path)}`);
+        await this.refreshAfterMutation(result);
+        return result;
+    }
+
+    async unstageFile(path: string): Promise<GitCommandResult> {
+        const result = await this.runCommand(`git restore --staged -- ${escapeShellString(path)}`);
+        await this.refreshAfterMutation(result);
+        return result;
+    }
+
+    async discardFile(path: string): Promise<GitCommandResult> {
+        const isUntracked = this.detailedStatus.some((file) => file.path === path && file.untracked);
+        const command = isUntracked
+            ? `git clean -f -- ${escapeShellString(path)}`
+            : `git restore --staged --worktree -- ${escapeShellString(path)}`;
+        const result = await withSyncPaused(this.sandbox.syncEngine, () =>
+            this.runCommand(command),
+        );
+        await this.refreshAfterMutation(result);
+        return result;
+    }
+
+    async getDiff(path: string, staged = false): Promise<string> {
+        const stagedFlag = staged ? '--cached ' : '';
+        const result = await this.runCommand(
+            `git --no-pager diff ${stagedFlag}-- ${escapeShellString(path)}`,
+            true,
+        );
+        return result.output;
+    }
+
+    async getFileContent(path: string, source: 'head' | 'index' | 'worktree'): Promise<string> {
+        if (source === 'worktree') {
+            try {
+                const content = await this.sandbox.readFile(path);
+                return typeof content === 'string' ? content : '';
+            } catch {
+                return '';
+            }
+        }
+
+        const objectPath = `${source === 'index' ? ':' : 'HEAD:'}${path}`;
+        const result = await this.runCommand(`git --no-pager show ${escapeShellString(objectPath)}`, true);
+        if (/^fatal:/m.test(result.output)) {
+            return '';
+        }
+        return result.output;
+    }
+
+    async commitStaged(message: string): Promise<GitCommandResult> {
+        await this.ensureGitConfig();
+        const result = await this.commit(message);
+        await this.refreshAfterMutation(result);
+        return result;
     }
 
     /**
@@ -338,6 +441,34 @@ export class GitManager {
         return this.sandbox.session.runCommand(command, undefined, ignoreError);
     }
 
+    private async refreshAfterMutation(result: GitCommandResult): Promise<void> {
+        if (result.success) {
+            await this.getDetailedStatus();
+            await this.listCommits();
+        }
+    }
+
+    private watchFileChanges(): void {
+        if (this.statusReactionDisposer) {
+            return;
+        }
+
+        this.statusReactionDisposer = reaction(
+            () => this.sandbox.changeVersion,
+            () => {
+                void this.getDetailedStatus();
+            },
+            { delay: 500 },
+        );
+    }
+
+    clear(): void {
+        this.statusReactionDisposer?.();
+        this.statusReactionDisposer = undefined;
+        this.detailedStatus = [];
+        this.commits = null;
+    }
+
     /**
      * Parse git log output into GitCommit objects
      */
@@ -422,4 +553,38 @@ export class GitManager {
 
         return cleanOutput.trim();
     }
+}
+
+export function parseGitPorcelainStatus(rawOutput: string): GitFileStatus[] {
+    const records = rawOutput.split('\0').filter(Boolean);
+    const entries: GitFileStatus[] = [];
+
+    for (let i = 0; i < records.length; i++) {
+        const record = records[i];
+        if (!record || record.length < 3) {
+            continue;
+        }
+
+        const statusIndex = record[0] ?? ' ';
+        const worktree = record[1] ?? ' ';
+        const path = record.slice(3);
+        const untracked = statusIndex === '?' && worktree === '?';
+        const staged = !untracked && statusIndex !== ' ' && statusIndex !== '?';
+
+        if (path) {
+            entries.push({
+                path,
+                index: statusIndex,
+                worktree,
+                staged,
+                untracked,
+            });
+        }
+
+        if (statusIndex === 'R' || statusIndex === 'C') {
+            i++;
+        }
+    }
+
+    return entries;
 }

@@ -1,6 +1,7 @@
 import { useEditorEngine } from '@/components/store/editor';
 import { PreloadScriptState } from '@/components/store/editor/sandbox';
-import { type Frame } from '@onlook/models';
+import { env } from '@/env';
+import { EditorMode, type Frame } from '@onlook/models';
 import { Icons } from '@onlook/ui/icons';
 import { colors } from '@onlook/ui/tokens';
 import { cn } from '@onlook/ui/utils';
@@ -61,10 +62,16 @@ export const FrameView = observer(({ frame, isInDragSelection = false }: { frame
 
     const isSelected = editorEngine.frames.isSelected(frame.id);
     const branchData = editorEngine.branches.getBranchDataById(frame.branchId);
+    const isLocalPreviewOnly = env.NEXT_PUBLIC_LOCAL_PREVIEW_ONLY;
     const sandboxReady = branchData?.sandbox?.isPreviewReady ?? false;
+    const previewReady = sandboxReady || (isLocalPreviewOnly && hasFrameLoaded);
     const preloadScriptReady = branchData?.sandbox?.preloadScriptState === PreloadScriptState.INJECTED;
-    const isFrameReady = sandboxReady && (hasFrameLoaded || (preloadScriptReady && !(isConnecting && !hasTimedOut)));
-    const shouldAllowFrameInteraction = sandboxReady && (hasFrameLoaded || hasTimedOut);
+    const isFrameReady =
+        previewReady && (hasFrameLoaded || (preloadScriptReady && !(isConnecting && !hasTimedOut)));
+    const shouldAllowFrameInteraction =
+        previewReady &&
+        (hasFrameLoaded || hasTimedOut) &&
+        editorEngine.state.editorMode === EditorMode.PREVIEW;
 
     const handleFrameConnectionFailed = useCallback(() => {
         if (!hasFrameLoadedRef.current) {
@@ -118,7 +125,7 @@ export const FrameView = observer(({ frame, isInDragSelection = false }: { frame
                 <FrameComponent
                     key={reloadKey}
                     frame={frame}
-                    enabled={sandboxReady}
+                    enabled={sandboxReady || isLocalPreviewOnly}
                     reloadIframe={immediateReload}
                     onConnectionFailed={handleFrameConnectionFailed}
                     onConnectionSuccess={handleConnectionSuccess}
@@ -130,7 +137,7 @@ export const FrameView = observer(({ frame, isInDragSelection = false }: { frame
                 <GestureScreen
                     frame={frame}
                     isResizing={isResizing}
-                    allowFrameInteraction={sandboxReady && hasFrameLoaded && !preloadScriptReady}
+                    allowFrameInteraction={shouldAllowFrameInteraction && !preloadScriptReady}
                 />
 
                 {!isFrameReady && (

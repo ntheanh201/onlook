@@ -299,6 +299,7 @@
                     },
                     "brand": "品牌",
                     "branches": "分支",
+                    "sourceControl": "Source Control",
                     "apps": "应用"
                 }
             }

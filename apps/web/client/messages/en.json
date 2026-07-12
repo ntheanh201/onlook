@@ -299,6 +299,7 @@
                     },
                     "brand": "Brand",
                     "branches": "Branches",
+                    "sourceControl": "Source Control",
                     "apps": "Apps"
                 }
             }

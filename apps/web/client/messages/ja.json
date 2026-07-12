@@ -188,6 +188,7 @@
                     },
                     "brand": "ブランド",
                     "branches": "ブランチ",
+                    "sourceControl": "Source Control",
                     "apps": "アプリ"
                 }
             }

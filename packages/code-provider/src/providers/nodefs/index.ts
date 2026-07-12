@@ -51,57 +51,52 @@ import {
     type WriteFileOutput,
 } from '../../types';
 
-export interface NodeFsProviderOptions {}
+export interface NodeFsProviderOptions {
+    baseUrl?: string;
+}
 
 export class NodeFsProvider extends Provider {
     private readonly options: NodeFsProviderOptions;
+    private baseUrl: string;
 
     constructor(options: NodeFsProviderOptions) {
         super();
         this.options = options;
+        this.baseUrl = options.baseUrl ?? '';
     }
 
     async initialize(input: InitializeInput): Promise<InitializeOutput> {
+        if (!this.baseUrl && typeof window !== 'undefined') {
+            this.baseUrl = window.location.origin;
+        }
         return {};
     }
 
     async writeFile(input: WriteFileInput): Promise<WriteFileOutput> {
-        return {
-            success: true,
-        };
+        return this.request<WriteFileOutput>('writeFile', input.args);
     }
 
     async renameFile(input: RenameFileInput): Promise<RenameFileOutput> {
-        return {};
+        return this.request<RenameFileOutput>('renameFile', input.args);
     }
 
     async statFile(input: StatFileInput): Promise<StatFileOutput> {
-        return {
-            type: 'file',
-        };
+        return this.request<StatFileOutput>('statFile', input.args);
     }
 
     async deleteFiles(input: DeleteFilesInput): Promise<DeleteFilesOutput> {
-        return {};
+        return this.request<DeleteFilesOutput>('deleteFiles', input.args);
     }
 
     async listFiles(input: ListFilesInput): Promise<ListFilesOutput> {
-        return {
-            files: [],
-        };
+        return this.request<ListFilesOutput>('listFiles', input.args);
     }
 
     async readFile(input: ReadFileInput): Promise<ReadFileOutput> {
-        return {
-            file: {
-                path: input.args.path,
-                content: '',
-                type: 'text',
-                toString: () => {
-                    return '';
-                },
-            },
-        };
+        const output = await this.request<ReadFileOutput>('readFile', input.args);
+        output.file.toString = () =>
+            typeof output.file.content === 'string' ? output.file.content : '';
+        return output;
     }
 
     async downloadFiles(input: DownloadFilesInput): Promise<DownloadFilesOutput> {
@@ -111,11 +106,11 @@ export class NodeFsProvider extends Provider {
     }
 
     async copyFiles(input: CopyFilesInput): Promise<CopyFileOutput> {
-        return {};
+        return this.request<CopyFileOutput>('copyFiles', input.args);
     }
 
     async createDirectory(input: CreateDirectoryInput): Promise<CreateDirectoryOutput> {
-        return {};
+        return this.request<CreateDirectoryOutput>('createDirectory', input.args);
     }
 
     async watchFiles(input: WatchFilesInput): Promise<WatchFilesOutput> {
@@ -136,9 +131,14 @@ export class NodeFsProvider extends Provider {
         };
     }
 
-    async runCommand(input: TerminalCommandInput): Promise<TerminalCommandOutput> {
+    async runCommand({ args }: TerminalCommandInput): Promise<TerminalCommandOutput> {
+        const response = await this.request<TerminalCommandOutput>(
+            'run',
+            { command: args.command },
+            'git',
+        );
         return {
-            output: '',
+            output: response.output ?? '',
         };
     }
 
@@ -151,8 +151,9 @@ export class NodeFsProvider extends Provider {
     }
 
     async gitStatus(input: GitStatusInput): Promise<GitStatusOutput> {
+        const response = await this.request<{ raw: string }>('status', {}, 'git');
         return {
-            changedFiles: [],
+            changedFiles: parsePorcelainStatusPaths(response.raw ?? ''),
         };
     }
 
@@ -165,7 +166,7 @@ export class NodeFsProvider extends Provider {
     }
 
     async reload(): Promise<boolean> {
-        // TODO: Implement
+        await this.request<Record<string, never>>('restart', {});
         return true;
     }
 
@@ -205,6 +206,71 @@ export class NodeFsProvider extends Provider {
     async destroy(): Promise<void> {
         // TODO: Implement
     }
+
+    private async request<T>(
+        action: string,
+        args: Record<string, unknown>,
+        endpoint: 'fs' | 'git' = 'fs',
+    ): Promise<T> {
+        if (!this.baseUrl) {
+            throw new Error('NodeFs provider base URL is not configured');
+        }
+
+        const body =
+            endpoint === 'git'
+                ? JSON.stringify({ action, ...args })
+                : JSON.stringify({ action, args });
+
+        const response = await fetch(`${this.baseUrl}/api/local-preview/${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+        });
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        return response.json() as Promise<T>;
+    }
+}
+
+export function parsePorcelainStatusPaths(raw: string): string[] {
+    return parsePorcelainStatusEntries(raw).map((entry) => entry.path);
+}
+
+export interface PorcelainStatusEntry {
+    path: string;
+    index: string;
+    worktree: string;
+}
+
+export function parsePorcelainStatusEntries(raw: string): PorcelainStatusEntry[] {
+    const records = raw.split('\0').filter(Boolean);
+    const entries: PorcelainStatusEntry[] = [];
+
+    for (let i = 0; i < records.length; i++) {
+        const record = records[i];
+        if (!record || record.length < 3) {
+            continue;
+        }
+
+        const index = record[0] ?? ' ';
+        const worktree = record[1] ?? ' ';
+        const path = record.slice(3);
+
+        if (!path) {
+            continue;
+        }
+
+        entries.push({ path, index, worktree });
+
+        if (index === 'R' || index === 'C') {
+            i++;
+        }
+    }
+
+    return entries;
 }
 
 export class NodeFsFileWatcher extends ProviderFileWatcher {

@@ -1,10 +1,10 @@
 import 'server-only';
 
 import { env } from '@/env';
-import { authSessions, authUsers } from '@onlook/db';
+import { SEED_USER, authUsers } from '@onlook/db';
 import { db } from '@onlook/db/src/client';
 import type { Session, User } from '@supabase/supabase-js';
-import { and, eq, gt, isNull, or } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import type { NextRequest } from 'next/server';
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -22,6 +22,10 @@ export async function getAuthenticatedUser(
     supabase: SupabaseUserClient,
     req?: NextRequest,
 ): Promise<{ user: User | null; error: string | null }> {
+    if (env.NEXT_PUBLIC_LOCAL_PREVIEW_ONLY) {
+        return { user: getLocalPreviewUser(), error: null };
+    }
+
     const {
         data: { user },
         error,
@@ -37,6 +41,30 @@ export async function getAuthenticatedUser(
     }
 
     return { user: null, error: fallback.error ?? error.message };
+}
+
+function getLocalPreviewUser(): User {
+    const now = new Date().toISOString();
+
+    return {
+        id: SEED_USER.ID,
+        app_metadata: {},
+        aud: 'authenticated',
+        created_at: now,
+        email: SEED_USER.EMAIL,
+        email_confirmed_at: now,
+        phone: '',
+        phone_confirmed_at: '',
+        confirmed_at: now,
+        role: 'authenticated',
+        updated_at: now,
+        user_metadata: {
+            avatar_url: SEED_USER.AVATAR_URL,
+            display_name: SEED_USER.DISPLAY_NAME,
+            first_name: SEED_USER.FIRST_NAME,
+            last_name: SEED_USER.LAST_NAME,
+        },
+    };
 }
 
 async function getUserFromVerifiedCookie(
@@ -87,40 +115,57 @@ async function getUserFromLocalJwt(
         return { user: null, error: 'Auth session missing!' };
     }
 
-    const authSession = payload.session_id
-        ? await db.query.authSessions.findFirst({
-            where: and(
-                eq(authSessions.id, payload.session_id),
-                eq(authSessions.userId, payload.sub),
-                or(isNull(authSessions.notAfter), gt(authSessions.notAfter, new Date())),
-            ),
-        })
-        : null;
-
-    if (!authSession) {
+    if (!payload.session_id || !(await hasValidAuthSession(payload.session_id, payload.sub))) {
         return { user: null, error: 'Auth session missing!' };
     }
 
+    const authUserRecord = authUser as typeof authUser & {
+        aud?: string | null;
+        confirmedAt?: Date | null;
+        createdAt?: Date | null;
+        phone?: string | null;
+        phoneConfirmedAt?: Date | null;
+        rawAppMetaData?: unknown;
+        role?: string | null;
+        updatedAt?: Date | null;
+    };
     const emailConfirmedAt = authUser.emailConfirmedAt?.toISOString();
-    const phoneConfirmedAt = authUser.phoneConfirmedAt?.toISOString();
+    const phoneConfirmedAt = authUserRecord.phoneConfirmedAt?.toISOString();
 
     return {
         user: {
             id: payload.sub,
-            app_metadata: normalizeUserMetadata(authUser.rawAppMetaData) || payload.app_metadata || {},
-            aud: authUser.aud ?? payload.aud,
-            created_at: authUser.createdAt?.toISOString() ?? '',
+            app_metadata: normalizeUserMetadata(authUserRecord.rawAppMetaData) || payload.app_metadata || {},
+            aud: authUserRecord.aud ?? payload.aud,
+            created_at: authUserRecord.createdAt?.toISOString() ?? '',
             email: authUser.email,
             email_confirmed_at: emailConfirmedAt,
-            phone: authUser.phone ?? '',
+            phone: authUserRecord.phone ?? '',
             phone_confirmed_at: phoneConfirmedAt,
-            confirmed_at: authUser.confirmedAt?.toISOString() ?? emailConfirmedAt ?? phoneConfirmedAt,
-            role: authUser.role ?? payload.role,
-            updated_at: authUser.updatedAt?.toISOString() ?? '',
+            confirmed_at: authUserRecord.confirmedAt?.toISOString() ?? emailConfirmedAt ?? phoneConfirmedAt,
+            role: authUserRecord.role ?? payload.role,
+            updated_at: authUserRecord.updatedAt?.toISOString() ?? '',
             user_metadata: normalizeUserMetadata(authUser.rawUserMetaData) ?? {},
         },
         error: null,
     };
+}
+
+async function hasValidAuthSession(sessionId: string, userId: string): Promise<boolean> {
+    const result = await db.execute(sql`
+        select 1
+        from auth.sessions
+        where id = ${sessionId}
+          and user_id = ${userId}
+          and (not_after is null or not_after > now())
+        limit 1
+    `);
+
+    if (Array.isArray(result)) {
+        return result.length > 0;
+    }
+
+    return Boolean((result as { rows?: unknown[] }).rows?.length);
 }
 
 function verifySupabaseJwt(accessToken: string, jwtSecret: string): unknown {

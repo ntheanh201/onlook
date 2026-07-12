@@ -1,6 +1,7 @@
 'use client';
 
 import { useEditorEngine } from '@/components/store/editor';
+import { env } from '@/env';
 import { hashContent } from '@/services/sync-engine/sync-engine';
 import { EditorView } from '@codemirror/view';
 import { useDirectory, useFile } from '@onlook/file-system/hooks';
@@ -56,6 +57,29 @@ const createEditorFile = async (filePath: string, content: string | Uint8Array):
         throw new Error('Invalid content type');
     }
 }
+
+const pushFileToLocalPreview = async (filePath: string, content: string | Uint8Array): Promise<void> => {
+    if (!env.NEXT_PUBLIC_LOCAL_PREVIEW_ONLY) {
+        return;
+    }
+
+    const response = await fetch('/api/local-preview/fs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'writeFile',
+            args: {
+                path: filePath.replace(/^\/+/, ''),
+                content: typeof content === 'string' ? content : Array.from(content),
+                overwrite: true,
+            },
+        }),
+    });
+
+    if (!response.ok) {
+        throw new Error(await response.text());
+    }
+};
 
 export const CodeTab = memo(forwardRef<CodeTabRef, CodeTabProps>(({ projectId, branchId }, ref) => {
     const editorEngine = useEditorEngine();
@@ -209,10 +233,16 @@ export const CodeTab = memo(forwardRef<CodeTabRef, CodeTabProps>(({ projectId, b
         }
 
         await branchData.codeEditor.writeFile(filePath, file.content || '');
+        const savedContent = await branchData.codeEditor.readFile(filePath);
+        await pushFileToLocalPreview(filePath, savedContent);
 
-        if (file.type === 'text') {
-            const newHash = await hashContent(file.content);
-            return { ...file, originalHash: newHash };
+        if (file.type === 'text' && typeof savedContent === 'string') {
+            const newHash = await hashContent(savedContent);
+            return { ...file, content: savedContent, originalHash: newHash };
+        }
+
+        if (file.type === 'binary' && savedContent instanceof Uint8Array) {
+            return { ...file, content: savedContent };
         }
 
         return file;

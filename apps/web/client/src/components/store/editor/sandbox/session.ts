@@ -1,4 +1,5 @@
 import { api } from '@/trpc/client';
+import { env } from '@/env';
 import { CodeProvider, createCodeProviderClient, type Provider } from '@onlook/code-provider';
 import type { Branch } from '@onlook/models';
 import { makeAutoObservable } from 'mobx';
@@ -29,6 +30,20 @@ export class SessionManager {
         this.isConnecting = true;
 
         const attemptConnection = async () => {
+            if (env.NEXT_PUBLIC_LOCAL_PREVIEW_ONLY) {
+                const provider = await createCodeProviderClient(CodeProvider.NodeFs, {
+                    providerOptions: {
+                        nodefs: {
+                            baseUrl: window.location.origin,
+                        },
+                    },
+                });
+
+                this.provider = provider;
+                await this.createTerminalSessions(provider);
+                return;
+            }
+
             const provider = await createCodeProviderClient(CodeProvider.CodeSandbox, {
                 providerOptions: {
                     codesandbox: {

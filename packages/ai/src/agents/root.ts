@@ -1,8 +1,8 @@
 import type { ToolCall } from '@ai-sdk/provider-utils';
-import { ChatType, LLMProvider, type ChatMessage, type ModelConfig } from '@onlook/models';
+import { ChatType, type ChatMessage, type ModelConfig } from '@onlook/models';
 import { NoSuchToolError, generateObject, smoothStream, stepCountIs, streamText, type ToolSet } from 'ai';
 import { convertToStreamMessages, getAskModeSystemPrompt, getCreatePageSystemPrompt, getSystemPrompt, getToolSetFromType, initModel } from '../index';
-import { getDefaultOpenRouterModel, getSmallOpenRouterModel } from '../chat';
+import { getDefaultModelPayload, getSmallModelPayload } from '../chat';
 
 export const createRootAgentStream = ({
     chatType,
@@ -26,6 +26,7 @@ export const createRootAgentStream = ({
         providerOptions: modelConfig.providerOptions,
         messages: convertToStreamMessages(messages),
         maxRetries: modelConfig.maxRetries,
+        maxOutputTokens: modelConfig.maxOutputTokens,
         model: modelConfig.model,
         system: systemPrompt,
         tools: toolSet,
@@ -64,17 +65,11 @@ const getModelFromType = (chatType: ChatType): ModelConfig => {
     switch (chatType) {
         case ChatType.CREATE:
         case ChatType.FIX:
-            return initModel({
-                provider: LLMProvider.OPENROUTER,
-                model: getDefaultOpenRouterModel(),
-            });
+            return initModel(getDefaultModelPayload());
         case ChatType.ASK:
         case ChatType.EDIT:
         default:
-            return initModel({
-                provider: LLMProvider.OPENROUTER,
-                model: getDefaultOpenRouterModel(),
-            });
+            return initModel(getDefaultModelPayload());
     }
 }
 
@@ -93,10 +88,7 @@ export const repairToolCall = async ({ toolCall, tools, error }: { toolCall: Too
         `Invalid parameter for tool ${toolCall.toolName} with args ${JSON.stringify(toolCall.input)}, attempting to fix`,
     );
 
-    const { model } = initModel({
-        provider: LLMProvider.OPENROUTER,
-        model: getSmallOpenRouterModel(),
-    });
+    const { model } = initModel(getSmallModelPayload());
 
     const { object: repairedArgs } = await generateObject({
         model,
