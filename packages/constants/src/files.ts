@@ -1,4 +1,10 @@
 const isDev = process.env.NODE_ENV === 'development';
+// In self-hosted local-preview mode the editor is a prod build, but it must still serve
+// the fork's OWN preload build from the project's /public (copied by copyPreloadScriptToPublic)
+// rather than the upstream jsDelivr CDN bundle — the CDN build can mismatch this editor's
+// penpal protocol, which silently breaks the editor <-> iframe bridge (no selection/drag).
+const isLocalPreview = process.env.NEXT_PUBLIC_LOCAL_PREVIEW_ONLY === 'true';
+const useLocalPreloadScript = isDev || isLocalPreview;
 const BASE_EXCLUDED_DIRECTORIES = ['node_modules', 'dist', 'build', '.git', '.next'] as const;
 
 export const CUSTOM_OUTPUT_DIR = '.next-prod';
@@ -14,12 +20,14 @@ export const ONLOOK_DEV_PRELOAD_SCRIPT_PATH = `public/${ONLOOK_PRELOAD_SCRIPT_FI
 const ONLOOK_PROD_PRELOAD_SCRIPT_SRC =
     'https://cdn.jsdelivr.net/gh/onlook-dev/onlook@d3887f2/apps/web/client/public/onlook-preload-script.js';
 // Officially exported src to load from local or CDN
-export const ONLOOK_PRELOAD_SCRIPT_SRC = isDev ? ONLOOK_DEV_PRELOAD_SCRIPT_SRC : ONLOOK_PROD_PRELOAD_SCRIPT_SRC;
+export const ONLOOK_PRELOAD_SCRIPT_SRC = useLocalPreloadScript ? ONLOOK_DEV_PRELOAD_SCRIPT_SRC : ONLOOK_PROD_PRELOAD_SCRIPT_SRC;
 
 export const DEPRECATED_PRELOAD_SCRIPT_SRCS = [
     'https://cdn.jsdelivr.net/gh/onlook-dev/onlook@main/apps/web/client/public/onlook-preload-script.js',
-    // Intentionally reversed to deprecate non-preferred (local in prod, CDN in dev) usage.
-    isDev ? ONLOOK_PROD_PRELOAD_SCRIPT_SRC : ONLOOK_DEV_PRELOAD_SCRIPT_SRC,
+    // Deprecate whichever src is NOT preferred for this build so stale <Script> tags get
+    // rewritten: when serving locally (dev or local-preview) the CDN src is deprecated, otherwise
+    // the local src is deprecated. This auto-heals layouts previously injected with the wrong src.
+    useLocalPreloadScript ? ONLOOK_PROD_PRELOAD_SCRIPT_SRC : ONLOOK_DEV_PRELOAD_SCRIPT_SRC,
 ];
 
 export const DEFAULT_IMAGE_DIRECTORY = 'public';

@@ -144,7 +144,21 @@ export async function POST(req: Request) {
         case 'writeFile': {
             const target = safePath(args.path);
             await mkdir(path.dirname(target), { recursive: true });
-            await writeFile(target, decodeContent(args.content));
+            const data = decodeContent(args.content);
+            await writeFile(target, data);
+            // Guard against silently truncated writes (e.g. an oversized JSON body clipped by a
+            // reverse-proxy body limit): verify the file on disk matches the payload size and fail
+            // loudly so the caller can retry rather than leaving a corrupted, unparseable file.
+            const expectedBytes = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data);
+            const writtenBytes = (await stat(target)).size;
+            if (writtenBytes !== expectedBytes) {
+                return Response.json(
+                    {
+                        error: `Write truncated for ${String(args.path)}: wrote ${writtenBytes} of ${expectedBytes} bytes`,
+                    },
+                    { status: 500 },
+                );
+            }
             return Response.json({ success: true });
         }
 

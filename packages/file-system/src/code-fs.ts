@@ -35,6 +35,16 @@ export class CodeFileSystem extends FileSystem {
     private indexPath = `${ONLOOK_CACHE_DIRECTORY}/index.json`;
     private indexRebuildPromise: Promise<void> | null = null;
 
+    // Files above this size are skipped for OID injection. Re-printing a huge (usually
+    // machine-generated) file balloons it and the oversized write can be truncated in
+    // transit, corrupting the file (e.g. "Unterminated string constant"). Normal
+    // hand-written components are far below this; only generated screen dumps exceed it.
+    private static readonly MAX_OID_INJECT_CHARS = 150_000;
+
+    private isTooLargeForOids(content: string): boolean {
+        return content.length > CodeFileSystem.MAX_OID_INJECT_CHARS;
+    }
+
     constructor(projectId: string, branchId: string, options: CodeEditorOptions = {}) {
         super(`/${projectId}/${branchId}`);
         this.projectId = projectId;
@@ -45,7 +55,7 @@ export class CodeFileSystem extends FileSystem {
     }
 
     async writeFile(path: string, content: string | Uint8Array): Promise<void> {
-        if (this.isJsxFile(path) && typeof content === 'string') {
+        if (this.isJsxFile(path) && typeof content === 'string' && !this.isTooLargeForOids(content)) {
             const processedContent = await this.processJsxFile(path, content);
             await super.writeFile(path, processedContent);
         } else {
@@ -82,6 +92,13 @@ export class CodeFileSystem extends FileSystem {
 
     private shouldInjectOids(path: string, content: string | Uint8Array): content is string {
         if (!this.isJsxFile(path) || typeof content !== 'string') {
+            return false;
+        }
+
+        if (this.isTooLargeForOids(content)) {
+            console.warn(
+                `Skipping OID injection for ${path}: ${content.length} chars exceeds ${CodeFileSystem.MAX_OID_INJECT_CHARS} limit`,
+            );
             return false;
         }
 
