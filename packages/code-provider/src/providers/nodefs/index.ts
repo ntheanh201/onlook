@@ -114,9 +114,19 @@ export class NodeFsProvider extends Provider {
     }
 
     async watchFiles(input: WatchFilesInput): Promise<WatchFilesOutput> {
-        return {
-            watcher: new NodeFsFileWatcher(),
-        };
+        if (!this.baseUrl && typeof window !== 'undefined') {
+            this.baseUrl = window.location.origin;
+        }
+        const watcher = new NodeFsFileWatcher(this.baseUrl);
+        await watcher.start(input);
+        if (input.onFileChange) {
+            watcher.registerEventCallback(async (event) => {
+                if (input.onFileChange) {
+                    await input.onFileChange({ type: event.type, paths: event.paths });
+                }
+            });
+        }
+        return { watcher };
     }
 
     async createTerminal(input: CreateTerminalInput): Promise<CreateTerminalOutput> {
@@ -274,16 +284,51 @@ export function parsePorcelainStatusEntries(raw: string): PorcelainStatusEntry[]
 }
 
 export class NodeFsFileWatcher extends ProviderFileWatcher {
-    start(input: WatchFilesInput): Promise<void> {
+    private eventSource: EventSource | null = null;
+    private callback: ((event: WatchEvent) => Promise<void>) | null = null;
+
+    constructor(private readonly baseUrl: string) {
+        super();
+    }
+
+    start(_input: WatchFilesInput): Promise<void> {
+        // EventSource is browser-only; the NodeFs provider always runs client-side.
+        if (typeof EventSource === 'undefined' || !this.baseUrl) {
+            return Promise.resolve();
+        }
+
+        this.eventSource = new EventSource(`${this.baseUrl}/api/local-preview/watch`);
+        this.eventSource.onmessage = (message) => {
+            let data: { type?: string; paths?: string[] };
+            try {
+                data = JSON.parse(message.data) as { type?: string; paths?: string[] };
+            } catch {
+                return;
+            }
+            // Ignore control frames ('ready', 'error') — only forward real file events.
+            if (data.type !== 'add' && data.type !== 'change' && data.type !== 'remove') {
+                return;
+            }
+            if (!this.callback || !data.paths?.length) {
+                return;
+            }
+            void this.callback({ type: data.type, paths: data.paths });
+        };
+        // EventSource reconnects automatically on transient errors; nothing to do here.
+        this.eventSource.onerror = () => {};
+
         return Promise.resolve();
     }
 
     stop(): Promise<void> {
+        this.eventSource?.close();
+        this.eventSource = null;
+        this.callback = null;
         return Promise.resolve();
     }
 
     registerEventCallback(callback: (event: WatchEvent) => Promise<void>): void {
-        // TODO: Implement
+        this.callback = callback;
     }
 }
 

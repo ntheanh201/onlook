@@ -73,6 +73,7 @@
     "@zenfs/dom": "1.2.5",
     "ai": "5.0.26",
     "blob-util": "^2.0.2",
+    "chokidar": "^4.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "culori": "^4.0.1",
