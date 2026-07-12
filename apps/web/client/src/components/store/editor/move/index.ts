@@ -38,6 +38,10 @@ export class MoveManager {
         return this.state?.dragState === DragState.IN_PROGRESS;
     }
 
+    get hasDragState() {
+        return this.state !== null;
+    }
+
     setDragState(dragState: DragState) {
         if (this.state) {
             this.state.dragState = dragState;
@@ -90,13 +94,6 @@ export class MoveManager {
             return;
         }
 
-        const positionType = el.styles?.computed?.position;
-        if (positionType === 'absolute') {
-            console.warn('Absolute mode dragging is disabled');
-            this.clear();
-            return;
-        }
-
         if (!frameData.view) {
             console.error('No frame view found');
             this.clear();
@@ -136,6 +133,16 @@ export class MoveManager {
             const distance = Math.max(Math.abs(dx), Math.abs(dy));
             if (distance < this.MIN_DRAG_DISTANCE) {
                 return;
+            }
+            if (this.state.originalIndex === null) {
+                if (this.dragPreparationTimer) {
+                    clearTimeout(this.dragPreparationTimer);
+                    this.dragPreparationTimer = null;
+                }
+                await this.prepareDrag(this.state.dragTarget, frameData);
+                if (!this.state || this.state.originalIndex === null) {
+                    return;
+                }
             }
             this.setDragState(DragState.IN_PROGRESS);
         }

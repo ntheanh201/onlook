@@ -7,7 +7,7 @@ import { toast } from '@onlook/ui/sonner';
 import { cn } from '@onlook/ui/utils';
 import throttle from 'lodash/throttle';
 import { observer } from 'mobx-react-lite';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { RightClickMenu } from '../../right-click-menu';
 
 export const GestureScreen = observer(
@@ -21,6 +21,7 @@ export const GestureScreen = observer(
         allowFrameInteraction?: boolean;
     }) => {
     const editorEngine = useEditorEngine();
+    const didDragRef = useRef(false);
 
     const getFrameData: () => FrameData | null = useCallback(() => {
         return editorEngine.frames.get(frame.id);
@@ -71,6 +72,7 @@ export const GestureScreen = observer(
                     case MouseAction.MOUSE_DOWN:
                         if (el.tagName.toLocaleLowerCase() === 'body') {
                             editorEngine.frames.select([frame], e.shiftKey);
+                            editorEngine.move.cancelDragPreparation();
                             return;
                         }
                         // Ignore right-clicks
@@ -84,6 +86,12 @@ export const GestureScreen = observer(
                             editorEngine.elements.shiftClick(el);
                         } else {
                             editorEngine.elements.click([el]);
+                            if (
+                                editorEngine.state.editorMode === EditorMode.DESIGN &&
+                                editorEngine.state.insertMode === null
+                            ) {
+                                editorEngine.move.startDragPreparation(el, pos, frameData);
+                            }
                         }
                         break;
                     case MouseAction.DOUBLE_CLICK:
@@ -107,6 +115,12 @@ export const GestureScreen = observer(
         throttle(async (e: React.MouseEvent<HTMLDivElement>) => {
             // Skip hover events during drag selection
             if (editorEngine.state.isDragSelecting) {
+                return;
+            }
+            if (editorEngine.move.hasDragState) {
+                const wasDragInProgress = editorEngine.move.isDragInProgress;
+                await editorEngine.move.drag(e, getRelativeMousePosition);
+                didDragRef.current = wasDragInProgress || editorEngine.move.isDragInProgress;
                 return;
             }
             if (
@@ -133,6 +147,10 @@ export const GestureScreen = observer(
 
     const handleClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
+            if (didDragRef.current) {
+                didDragRef.current = false;
+                return;
+            }
             editorEngine.frames.select([frame]);
         },
         [editorEngine.frames],
@@ -158,6 +176,11 @@ export const GestureScreen = observer(
     }
 
     async function handleMouseUp(e: React.MouseEvent<HTMLDivElement>) {
+        if (editorEngine.move.hasDragState) {
+            await editorEngine.move.end(e);
+            return;
+        }
+
         const frameData = getFrameData();
         if (!frameData) {
             return;
